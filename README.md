@@ -1,8 +1,6 @@
 # Projects skill
 
-How an agent runs a project on Spacesheep: one space holds the tasks as records, board spaces show and change them. Spacesheep itself knows nothing about projects; everything project-specific lives here. Draft: not released.
-
-Use this template, rename the skill, write its words, and tag `v1.0.0`.
+How an agent runs a project on Spacesheep: one space holds the tasks as records, board spaces show and change them. Spacesheep itself knows nothing about projects; everything project-specific lives here.
 
 ## What's in it
 
