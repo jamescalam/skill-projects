@@ -36,29 +36,32 @@ if it isn't installed) and prints the links as JSON.
      Leave them out and everything is private to the person.
    - `--labels` takes names, each with an optional `#rrggbb` (references/task-shape.md has the palette).
 3. **Reply with the board's link first**, then one line on what's in it ("6 tasks, 4 labels, key CLA"). Name the
-   database space as the project's home.
+   database space as the project's home: it lists the boards and where things stand, and every board links to it.
 
 Without this skill's folder: `npx -y spacesheep@latest skills get @spacesheep/projects -o <an empty folder>`, then the
 same command from that folder.
+
+Spacesheep takes 120 record writes a minute from one person, and 200 records per person in a collection (2,000 in
+all), so a bigger import waits out the minute by itself, and past 200 tasks needs a second person's account.
 
 **Add tasks later** the same way: `node <folder>/assets/projects.js add <database @owner/slug or link> --tasks
 more.json`. It takes their keys in one guarded claim, so two agents adding at once never share a key.
 
 ## No shell (a chat connector, Shepherd)
 
-Do the same with the MCP tools, side by side wherever a step allows:
+Do the same with the MCP tools, each step as soon as what it needs exists, side by side:
 
-1. `create_space` the database: `templates/database.html` with `{{NAME}}`, `{{KEY}}` filled, `{{SOURCE}}` and
-   `{{BOARDS}}` empty. Its answer's `name` is its address, `@owner/slug`.
-2. Side by side: `create_space` each board (`templates/board.html`, `{{SOURCE}}` = the database's `@owner/slug`,
-   `{{TITLE}}` = the board's name), `create_record` each label in `labels`, and `create_record` in `settings`:
-   `{"key": "CLA", "name": "<project name>", "next": <number of tasks + 1>}`.
-3. Side by side: `create_record` each task in `tasks` (`key` = `<KEY>-1`, `-2`…; `rank` in order per column,
-   `"i"`, `"r"`, `"v"`…; `labels` as label record ids), `update_collection` on `tasks`, `labels` and `settings` with
-   `writers_ids` = every board's id, and `create_version` of the database page with `{{SOURCE}}` and `{{BOARDS}}`
-   filled (`<a href="<board url>">Board name</a>` each).
+1. `create_space` the database: `templates/database.html` with `{{NAME}}` and `{{KEY}}` filled. Its answer's `name`
+   is its address, `@owner/slug`.
+2. Then, side by side: `create_space` each board (`templates/board.html`, `{{SOURCE}}` = the database's
+   `@owner/slug`, `{{TITLE}}` = the board's name), and `create_record` each label in `labels`.
+3. Then, side by side: `create_record` each task in `tasks` (`key` = `<KEY>-1`, `-2`…; `rank` in order per column,
+   `"i"`, `"r"`, `"v"`…; `labels` as label record ids), `create_record` in `settings`
+   (`{"key", "name", "next": <tasks + 1>, "home": <database url>, "boards": [{"name", "url"}]}`), and
+   `update_collection` on `tasks`, `labels` and `settings` with `writers_ids` = every board's id.
 
-Share every space alike: `visibility` and `people` on each `create_space`.
+Share every space alike: `visibility` and `people` on each `create_space`. A Spacesheep account makes at most 20
+spaces an hour, and a project is one space plus one per board.
 
 ## Change tasks as an agent
 

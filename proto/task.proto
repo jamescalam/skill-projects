@@ -54,4 +54,14 @@ message Settings {
   string name = 2;
   // The number the next task takes.
   int64 next = 3;
+  // The database space's link: every board links its project's home.
+  string home = 4;
+  // The project's boards, in the order the database page lists them.
+  repeated Board boards = 5;
+}
+
+// One board of a project.
+message Board {
+  string name = 1;
+  string url = 2;
 }

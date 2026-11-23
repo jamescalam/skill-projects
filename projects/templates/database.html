@@ -5,10 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{NAME}}</title>
 <!-- The Projects skill's database page: the project's home. Keep the spacesheep:records meta on every publish: a
-     publish without it sends the collections back to private, and every board loses them. {{SOURCE}} is this space
-     as @owner/slug (empty on the very first version, before it has an address), {{BOARDS}} one <a> per board. -->
+     publish without it sends the collections back to private, and every board loses them. It reads its own records
+     (api/records/…), and its boards from the settings record, so it is published once, complete. -->
 <meta name="spacesheep:records" content='{"tasks":{"mode":"shared","edit":"any"},"labels":{"mode":"shared","edit":"any"},"settings":{"mode":"shared","edit":"any"}}'>
-<meta name="ss-records" content="{{SOURCE}}/tasks">
 <style>
 :root{--ground:#fbfbfa;--ink:#1b1b1d;--surface:#fff;--accent:#4f46e5;--muted:#5f6068;--rule:#e6e6e3;--radius:6px;
   --font:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif}
@@ -40,7 +39,7 @@ ol.recent .s{color:var(--muted);font-size:13px;white-space:nowrap}
   <p class="product">Projects · {{KEY}}</p>
   <h1>{{NAME}}</h1>
   <h2>Boards</h2>
-  <nav class="boards" aria-label="Boards">{{BOARDS}}</nav>
+  <nav class="boards" id="boards" aria-label="Boards"><p class="empty">Loading…</p></nav>
   <h2>Where things stand</h2>
   <div id="sum"><p class="empty">Loading…</p></div>
   <h2>Last changed</h2>
@@ -49,20 +48,14 @@ ol.recent .s{color:var(--muted);font-size:13px;white-space:nowrap}
 <script>
 (function () {
   "use strict";
-  var SRC = "{{SOURCE}}";
   var STATES = [["backlog", "Backlog", "#c8c8c4"], ["todo", "Todo", "#8b8d98"], ["in_progress", "In progress", "#4f46e5"], ["in_review", "In review", "#b45309"], ["done", "Done", "#15803d"]];
   var $ = function (id) { return document.getElementById(id); };
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
-  if (!SRC || window.parent === window) { $("sum").innerHTML = '<p class="empty">Open this space on Spacesheep to see its tasks.</p>'; return; }
-  var seq = 0, waiting = {};
-  function call(msg) {
-    return new Promise(function (ok) {
-      var id = "pd" + (++seq); waiting[id] = ok; msg.type = "ss-records"; msg.id = id;
-      window.parent.postMessage(msg, "*");
-      setTimeout(function () { if (waiting[id]) { delete waiting[id]; ok({ ok: false }); } }, 20000);
-    });
+  function get(c) { return fetch("api/records/" + c + "?limit=200", { credentials: "include" }).then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); }); }
+  function drawBoards(set) {
+    var b = set && Array.isArray(set.boards) ? set.boards : [];
+    $("boards").innerHTML = b.length ? b.map(function (x) { return /^https:\/\//.test(String(x.url)) || /^http:\/\/localhost/.test(String(x.url)) ? '<a href="' + esc(x.url) + '">' + esc(x.name) + "</a>" : ""; }).join("") : '<p class="empty">No boards yet.</p>';
   }
-  window.addEventListener("message", function (e) { var d = e.data; if (e.source === window.parent && d && d.type === "ss-records-result" && waiting[d.id]) { var r = waiting[d.id]; delete waiting[d.id]; r(d); } });
   function draw(tasks) {
     var live = tasks.filter(function (t) { return t.data.state !== "dropped"; }), n = live.length;
     var count = {}; live.forEach(function (t) { var s = t.data.state || "backlog"; count[s] = (count[s] || 0) + 1; });
@@ -80,13 +73,13 @@ ol.recent .s{color:var(--muted);font-size:13px;white-space:nowrap}
   function load() {
     if (busy) { again = true; return; }
     busy = true;
-    call({ op: "list", source: SRC + "/tasks", limit: 200 }).then(function (r) {
-      busy = false;
-      if (r.ok) draw(r.records || []); else if (!$("sum").querySelector(".bar")) $("sum").innerHTML = '<p class="empty">' + esc(r.message || "The tasks didn't load.") + "</p>";
-      if (again) { again = false; load(); }
-    });
+    Promise.all([get("tasks"), get("settings").catch(function () { return { records: [] }; })]).then(function (got) {
+      draw(got[0].records || []); drawBoards(((got[1].records || [])[0] || {}).data);
+    }, function () {
+      if (!$("sum").querySelector(".bar")) $("sum").innerHTML = '<p class="empty">The tasks didn\u2019t load. Reload to try again.</p>';
+    }).then(function () { busy = false; if (again) { again = false; load(); } });
   }
-  document.addEventListener("ss:records", function (e) { var d = e.detail || {}; if (!d.collection || d.collection === "tasks") load(); });
+  document.addEventListener("ss:records", function () { load(); });
   load();
 })();
 </script>

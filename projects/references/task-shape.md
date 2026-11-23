@@ -7,7 +7,7 @@ protobuf messages.
 |---|---|---|
 | `tasks` | task | the fields below |
 | `labels` | label | `{name, color}`: a task names its labels by record id, so a rename reaches every card |
-| `settings` | project (exactly one) | `{key, name, next}`: the project key and the next task number |
+| `settings` | project (exactly one) | `{key, name, next, home, boards}`: the project key, the next task number, and where the project lives |
 
 ## A task
 
@@ -57,8 +57,13 @@ Who made a task, and when it was made and last changed, come from the record its
 ## The settings record
 
 ```json
-{ "key": "PROJ", "name": "Projects skill", "next": 1 }
+{ "key": "PROJ", "name": "Projects skill", "next": 1,
+  "home": "https://spacesheep.dev/@you/projects-skill",
+  "boards": [{ "name": "Board", "url": "https://spacesheep.dev/@you/projects-skill-board" }] }
 ```
+
+`home` is the database space; `boards` is every board, which the database page lists. A new board is added here, and
+to the writers of `tasks`, `labels` and `settings`.
 
 `key` is 3-5 capital letters, from the project's name unless someone gives one. To make a task, read this record, then
 update it to `next + 1` with the `revision` you read. A 409 means someone else took that number: read it again and take

@@ -16,6 +16,8 @@ html,body{margin:0;background:var(--ground);color:var(--ink);font:16px/1.4 var(-
 button,input,select,textarea{font:inherit;color:inherit}
 .top{display:flex;flex-direction:column;gap:4px;padding:16px;border-bottom:1px solid var(--rule)}
 .product{font-size:14px;color:var(--muted);margin:0}
+.product a{color:inherit;text-decoration:none}
+.product a:hover,.product a:focus-visible{text-decoration:underline}
 .top h1{font-size:24px;line-height:1.25;font-weight:600;margin:0}
 .bar{display:flex;gap:12px;align-items:center;padding:8px 16px;font-size:14px;color:var(--muted);border-bottom:1px solid var(--rule);flex-wrap:wrap}
 .bar .grow{flex:1}
@@ -480,7 +482,9 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
   function showProduct() {
     if (!settings) return;
     var name = settings.data.name || "", h1 = document.querySelector(".top h1").textContent.trim();
-    $("product").textContent = "Projects · " + (settings.data.key || "") + (name && name !== h1 ? " · " + name : "");
+    var text = "Projects · " + (settings.data.key || "") + (name && name !== h1 ? " · " + name : ""), home = String(settings.data.home || "");
+    // The project's home (the database space), when the settings record names one on Spacesheep's own address.
+    $("product").innerHTML = /^https?:\/\/[^/]+\/@[a-z0-9-]+\/[a-z0-9-]+$/.test(home) ? '<a href="' + esc(home) + '">' + esc(text) + "</a>" : esc(text);
   }
   function load(quiet) {
     return Promise.all([listAll(TASKS), listAll(LABELS).catch(function () { return []; }), listAll(SETTINGS).catch(function () { return []; })]).then(function (got) {

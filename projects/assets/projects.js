@@ -46,7 +46,8 @@ const list = (v) => String(v || "").split(",").map((s) => s.trim()).filter(Boole
 // --- The CLI's MCP bridge: one process, calls side by side ---
 function findCli() {
   if (process.env.PROJECTS_CLI) return [process.env.PROJECTS_CLI];
-  for (const find of ["command -v spacesheep", "npx -y -p spacesheep@latest -c 'command -v spacesheep'"]) {
+  // npx's own copy, from its cache when it has one (0.2 s, not 0.8 s asking npm): the bridge rarely changes.
+  for (const find of ["command -v spacesheep", "npx --prefer-offline -y -p spacesheep@latest -c 'command -v spacesheep'"]) {
     try { const bin = execSync(find, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 120000, killSignal: "SIGKILL" }).trim(); if (bin) return [bin]; } catch {}
   }
   return ["npx", "-y", "spacesheep@latest"];
@@ -68,11 +69,19 @@ function bridge() {
   });
   p.on("exit", () => { for (const w of waits.values()) w({ error: { message: err.trim().split("\n").pop() || "the spacesheep CLI stopped" } }); waits.clear(); });
   const rpc = (method, params) => new Promise((ok) => { const id = ++n; waits.set(id, ok); p.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n"); });
-  const ready = rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "projects-skill", version: "1" } })
-    .then((m) => { if (m.error) throw new Error(m.error.message); p.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n"); });
+  // Spacesheep's MCP server keeps no session, so calls go straight out: an initialize first would cost a whole round
+  // trip. A server that asks for one refuses the call before running it, so then it's made and the call sent again.
+  let ready = null;
+  const initialize = () => ready || (ready = rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "projects-skill", version: "1" } })
+    .then((m) => { if (m.error) throw new Error(m.error.message); p.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n"); }));
   async function call(name, args) {
-    await ready;
-    const m = await rpc("tools/call", { name, arguments: args });
+    const t = Date.now();
+    try { return await callOnce(name, args); } finally { if (process.env.PROJECTS_TRACE) log(`  ${name} ${args.collection || ""} ${Date.now() - t} ms`); }
+  }
+  async function callOnce(name, args) {
+    if (ready) await ready;
+    let m = await rpc("tools/call", { name, arguments: args });
+    if (m.error && /initiali[sz]|session/i.test(m.error.message || "")) { await initialize(); m = await rpc("tools/call", { name, arguments: args }); }
     if (m.error) throw new Error(`${name}: ${m.error.message}`);
     const r = m.result || {};
     const text = (r.content || []).map((c) => c.text || "").join("\n");
@@ -153,6 +162,13 @@ async function write(fn) {
   } finally { const next = queue.shift(); if (next) next(); else slots++; }
 }
 
+// The address create_space gives a title when it's free (shared/slug.ts), so the boards can name the database
+// before it exists.
+function slugify(title) {
+  return String(title).toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "").slice(0, 60).replace(/-+$/, "") || "untitled";
+}
+
 async function newProject() {
   const name = rest[0] && rest[0].trim();
   if (!name) die('new needs the project\'s name: projects.js new "<name>"');
@@ -163,35 +179,42 @@ async function newProject() {
   const tasks = readTasks(flags.tasks);
   const share = { ...(flags.visibility ? { visibility: flags.visibility } : {}), ...(flags.people ? { people: list(flags.people) } : {}) };
   const ss = bridge();
-  const done = (out) => { ss.close(); out.ms = ms(); process.stdout.write(JSON.stringify(out, null, 2) + "\n"); };
+  const slug = slugify(name);
+  const boardTitle = (b) => (b === "Board" ? `${name} · Board` : `${name} · ${b}`);
+  const boardFile = (src, b) => [{ path: "index.html", content: fill("board.html", { SOURCE: src, TITLE: esc(b === "Board" ? name : b) }) }];
 
-  // 1. The database space: its records meta from the first version on.
-  const db = (await ss.call("create_space", { title: name, emoji: "🗂️", description: `${name}: the project's tasks`, label: "Project database", ...share,
-    files: [{ path: "index.html", content: fill("database.html", { NAME: esc(name), KEY: key, SOURCE: "", BOARDS: "" }) }] })).space;
-  const src = db.name; // @owner/slug
-  log(`database ${src}`);
-
-  // 2. Side by side: each board, the labels, and the settings record (the next free number is after the tasks).
-  const [boardSpaces, labelRecs] = await all([
-    all(boards.map((b) => ss.call("create_space", { title: boards.length === 1 && b === "Board" ? `${name} · Board` : `${name} · ${b}`, emoji: "📋",
-      description: `${b}: ${name}'s tasks, live`, label: "Board", ...share,
-      files: [{ path: "index.html", content: fill("board.html", { SOURCE: src, TITLE: esc(b === "Board" ? name : b) }) }] }).then((r) => r.space))),
-    all(labels.map((l) => write(() => ss.call("create_record", { space_id: db.id, collection: "labels", data: l })).then((r) => r.record))),
-    write(() => ss.call("create_record", { space_id: db.id, collection: "settings", data: { key, name, next: tasks.length + 1 } })),
-  ]);
-  log(`${boardSpaces.length} board(s), ${labelRecs.length} label(s), settings`);
-
-  // 3. Side by side: the tasks, every board allowed to write, and the database page naming its boards.
-  const labelIds = {}; labelRecs.forEach((r) => { labelIds[String(r.data.name).toLowerCase()] = r.id; });
-  const writers = boardSpaces.map((b) => b.id);
-  const rows = boardSpaces.map((b, i) => `<a href="${esc(b.url)}">${esc(boards[i])}</a>`).join("");
-  await all([
-    all(taskRecords(tasks, key, 1, labelIds).map((d) => write(() => ss.call("create_record", { space_id: db.id, collection: "tasks", data: d })))),
-    all(["tasks", "labels", "settings"].map((c) => ss.call("update_collection", { space_id: db.id, collection: c, writers_ids: writers }))),
-    ss.call("create_version", { space_id: db.id, label: "Boards", files: [{ path: "index.html", content: fill("database.html", { NAME: esc(name), KEY: key, SOURCE: src, BOARDS: rows }) }] }),
-  ]);
-  log(`${tasks.length} task(s), writers, database page`);
-  done({ project: name, key, database: { name: src, url: db.url }, boards: boardSpaces.map((b, i) => ({ name: boards[i], url: b.url })), labels: labelRecs.length, tasks: tasks.length });
+  // Everything starts as soon as what it needs exists, so the build takes its longest chain, not the sum:
+  //   the database ─┬─ labels ─ tasks
+  //                 ├─ settings (with the boards) ─┐
+  //   who you are ─ boards (naming the database at the address it asked for) ─┴─ boards allowed to write
+  // A database that got another address (the name was taken) has its boards re-published to name it.
+  const dbP = ss.call("create_space", { title: name, slug, emoji: "🗂️", description: `${name}: the project's tasks`, label: "Project database", ...share,
+    files: [{ path: "index.html", content: fill("database.html", { NAME: esc(name), KEY: key }) }] }).then((r) => { log(`database ${r.space.name}`); return r.space; });
+  // Your @handle, from your profile (its text says "Username: @you"); without it the boards wait for the database.
+  const meP = ss.call("get_account", {}).then((r) => { const m = /Username:\s*@([a-z0-9-]+)/i.exec(r.text || ""); return m ? m[1].toLowerCase() : (r.username || null); }, () => null);
+  const planned = meP.then((h) => (h ? `@${String(h).replace(/^@/, "")}/${slug}` : null));
+  const boardsP = Promise.all([planned, planned.then((src) => (src ? null : dbP))]).then(([src, db]) => {
+    const source = src || db.name;
+    return all(boards.map((b) => ss.call("create_space", { title: boardTitle(b), emoji: "📋", description: `${b}: ${name}'s tasks, live`, label: "Board", ...share, files: boardFile(source, b) })
+      .then((r) => r.space))).then((spaces) => ({ spaces, source }));
+  }).then(async ({ spaces, source }) => {
+    const db = await dbP;
+    if (source !== db.name) { log(`${source} was taken: the boards now name ${db.name}`); await all(spaces.map((sp, i) => ss.call("create_version", { space_id: sp.id, label: "Board", files: boardFile(db.name, boards[i]) }))); }
+    log(`${spaces.length} board(s)`);
+    return spaces;
+  });
+  const labelsP = dbP.then((db) => all(labels.map((l) => write(() => ss.call("create_record", { space_id: db.id, collection: "labels", data: l })).then((r) => r.record))));
+  const tasksP = Promise.all([dbP, labelsP]).then(([db, labelRecs]) => {
+    const labelIds = {}; labelRecs.forEach((r) => { labelIds[String(r.data.name).toLowerCase()] = r.id; });
+    return all(taskRecords(tasks, key, 1, labelIds).map((d) => write(() => ss.call("create_record", { space_id: db.id, collection: "tasks", data: d })))).then((x) => { log(`${labelRecs.length} label(s), ${x.length} task(s)`); return x; });
+  });
+  const restP = Promise.all([dbP, boardsP]).then(([db, spaces]) => all([
+    write(() => ss.call("create_record", { space_id: db.id, collection: "settings", data: { key, name, next: tasks.length + 1, home: db.url, boards: spaces.map((sp, i) => ({ name: boards[i], url: sp.url })) } })),
+    all(["tasks", "labels", "settings"].map((c) => ss.call("update_collection", { space_id: db.id, collection: c, writers_ids: spaces.map((sp) => sp.id) }))),
+  ]).then(() => log("settings, boards allowed to write")));
+  const [db, spaces] = await Promise.all([dbP, boardsP, tasksP, restP]);
+  ss.close();
+  process.stdout.write(JSON.stringify({ project: name, key, database: { name: db.name, url: db.url }, boards: spaces.map((sp, i) => ({ name: boards[i], url: sp.url })), labels: labels.length, tasks: tasks.length, ms: ms() }, null, 2) + "\n");
 }
 
 async function addTasks() {
