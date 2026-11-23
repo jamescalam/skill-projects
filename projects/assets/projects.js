@@ -135,6 +135,23 @@ function taskRecords(tasks, key, first, labelIds, lastRank = {}) {
   });
 }
 const all = (xs) => Promise.all(xs);
+// Record writes go 24 at a time. Spacesheep takes 120 record writes a minute from one person; one it refused for that
+// was never written, so it is sent again after the wait it names. Any other failure is not retried: it may have landed.
+let slots = 24, slowed = false;
+const queue = [];
+async function write(fn) {
+  if (slots <= 0) await new Promise((ok) => queue.push(ok)); else slots--;
+  try {
+    for (let tries = 0; ; tries++) {
+      try { return await fn(); }
+      catch (e) {
+        if (tries >= 6 || !/rate_limited|too many|429/i.test(e.message)) throw e;
+        if (!slowed) { slowed = true; log("Spacesheep's limit of 120 record writes a minute: waiting, then going on"); }
+        await new Promise((ok) => setTimeout(ok, 31000));
+      }
+    }
+  } finally { const next = queue.shift(); if (next) next(); else slots++; }
+}
 
 async function newProject() {
   const name = rest[0] && rest[0].trim();
@@ -156,11 +173,11 @@ async function newProject() {
 
   // 2. Side by side: each board, the labels, and the settings record (the next free number is after the tasks).
   const [boardSpaces, labelRecs] = await all([
-    all(boards.map((b) => ss.call("create_space", { title: boards.length === 1 && b === "Board" ? `${name} · board` : `${name} · ${b}`, emoji: "📋",
+    all(boards.map((b) => ss.call("create_space", { title: boards.length === 1 && b === "Board" ? `${name} · Board` : `${name} · ${b}`, emoji: "📋",
       description: `${b}: ${name}'s tasks, live`, label: "Board", ...share,
       files: [{ path: "index.html", content: fill("board.html", { SOURCE: src, TITLE: esc(b === "Board" ? name : b) }) }] }).then((r) => r.space))),
-    all(labels.map((l) => ss.call("create_record", { space_id: db.id, collection: "labels", data: l }).then((r) => r.record))),
-    ss.call("create_record", { space_id: db.id, collection: "settings", data: { key, name, next: tasks.length + 1 } }),
+    all(labels.map((l) => write(() => ss.call("create_record", { space_id: db.id, collection: "labels", data: l })).then((r) => r.record))),
+    write(() => ss.call("create_record", { space_id: db.id, collection: "settings", data: { key, name, next: tasks.length + 1 } })),
   ]);
   log(`${boardSpaces.length} board(s), ${labelRecs.length} label(s), settings`);
 
@@ -169,7 +186,7 @@ async function newProject() {
   const writers = boardSpaces.map((b) => b.id);
   const rows = boardSpaces.map((b, i) => `<a href="${esc(b.url)}">${esc(boards[i])}</a>`).join("");
   await all([
-    all(taskRecords(tasks, key, 1, labelIds).map((d) => ss.call("create_record", { space_id: db.id, collection: "tasks", data: d }))),
+    all(taskRecords(tasks, key, 1, labelIds).map((d) => write(() => ss.call("create_record", { space_id: db.id, collection: "tasks", data: d })))),
     all(["tasks", "labels", "settings"].map((c) => ss.call("update_collection", { space_id: db.id, collection: c, writers_ids: writers }))),
     ss.call("create_version", { space_id: db.id, label: "Boards", files: [{ path: "index.html", content: fill("database.html", { NAME: esc(name), KEY: key, SOURCE: src, BOARDS: rows }) }] }),
   ]);
@@ -196,7 +213,7 @@ async function addTasks() {
   }
   const labelIds = {}; (labelList.records || []).forEach((r) => { labelIds[String(r.data.name).toLowerCase()] = r.id; });
   const lastRank = {}; (taskList.records || []).forEach((r) => { const st = r.data.state || "backlog", rk = String(r.data.rank || ""); if (rk > (lastRank[st] || "")) lastRank[st] = rk; });
-  const made = await all(taskRecords(tasks, String(s.data.key), first, labelIds, lastRank).map((d) => ss.call("create_record", { space, collection: "tasks", data: d })));
+  const made = await all(taskRecords(tasks, String(s.data.key), first, labelIds, lastRank).map((d) => write(() => ss.call("create_record", { space, collection: "tasks", data: d }))));
   ss.close();
   process.stdout.write(JSON.stringify({ added: made.map((m) => m.record && m.record.data.key), ms: ms() }, null, 2) + "\n");
 }
