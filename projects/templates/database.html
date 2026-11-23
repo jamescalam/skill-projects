@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{NAME}} · tasks</title>
+<!-- The Projects skill's database page. Keep this meta on every publish: a publish without it sends the
+     collections back to private, and every board loses them. -->
+<meta name="spacesheep:records" content='{"tasks":{"mode":"shared","edit":"any"},"labels":{"mode":"shared","edit":"any"},"settings":{"mode":"shared","edit":"any"}}'>
+<style>
+:root{--ground:#fbfbfa;--ink:#1b1b1d;--surface:#fff;--accent:#4f46e5;--muted:#5f6068;--rule:#e6e6e3;--font:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif}
+body{margin:0;background:var(--ground);color:var(--ink);font:16px/1.5 var(--font)}
+main{max-width:720px;margin:0 auto;padding:32px 16px}
+h1{font-size:24px;font-weight:600;margin:0 0 4px}
+p{margin:0 0 12px;color:var(--muted)}
+table{border-collapse:collapse;width:100%;font-size:14px;margin-top:16px}
+th,td{text-align:left;padding:8px;border-bottom:1px solid var(--rule)}
+th{color:var(--muted);font-weight:600}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<main>
+  <h1>{{NAME}}</h1>
+  <p>This space holds the project's tasks, labels and settings. Open a board to see and change them.</p>
+  <table>
+    <thead><tr><th>Board</th><th>What it shows</th></tr></thead>
+    <tbody>
+      <!-- One row per board: <tr><td><a href="https://spacesheep.dev/@owner/board-slug">Board name</a></td><td>…</td></tr> -->
+      {{BOARDS}}
+    </tbody>
+  </table>
+</main>
+</body>
+</html>
