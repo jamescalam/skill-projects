@@ -66,7 +66,7 @@ table.list{width:calc(100% - 32px);margin:16px;border-collapse:collapse;font-siz
 .split.open .panel{display:block}
 .panel-head{display:flex;gap:8px;align-items:flex-start}
 .panel-head .grow{flex:1}
-.panel .title{font-size:20px;font-weight:600;width:100%;border:1px solid transparent;border-radius:4px;padding:2px 4px;margin:4px 0 0 -5px;background:none}
+.panel .title{font-size:20px;line-height:1.3;font-weight:600;width:100%;border:1px solid transparent;border-radius:4px;padding:2px 4px;margin:4px 0 0 -5px;background:none;resize:none;overflow:hidden;display:block;min-height:0}
 .panel .title:hover,.panel .title:focus{border-color:var(--rule)}
 .props{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;margin:12px 0;font-size:14px;align-items:center}
 .props dt{color:var(--muted)}
@@ -332,8 +332,8 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
       return '<label><input type="checkbox" data-label="' + esc(id) + '"' + (arr(d.labels).indexOf(id) >= 0 ? " checked" : "") + '><span class="dot" style="background:' + goodColor(l.data.color) + '"></span>' + esc(l.data.name) + "</label>"; }).join("") || '<span class="meta">No labels in this project.</span>';
     var blk = drafting ? [] : blocks(t);
     p.innerHTML =
-      '<div class="panel-head"><div class="grow"><span class="ref">' + esc(drafting ? "New task" : (keyOf(t) || "Task")) + (settings ? " · " + esc(settings.data.name || settings.data.key || "") : "") + "</span>" +
-      '<input class="title" data-f="title" maxlength="200" placeholder="Task title" value="' + esc(d.title || "") + '" aria-label="Title"></div>' +
+      '<div class="panel-head"><div class="grow"><span class="ref">' + esc(drafting ? "New task" : (keyOf(t) || "Task")) + (settings && settings.data.name && settings.data.name !== document.querySelector(".top h1").textContent.trim() ? " · " + esc(settings.data.name) : "") + "</span>" +
+      '<textarea class="title" data-f="title" maxlength="200" rows="1" placeholder="Task title" aria-label="Title">' + esc(d.title || "") + "</textarea></div>" +
       '<button type="button" class="x" id="close" aria-label="Close the task">×</button></div>' +
       '<dl class="props">' +
       field("Status", select("state", STATES.concat([["dropped", "Dropped"]]), stateOf(t))) +
@@ -341,13 +341,19 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
       field("Priority", select("priority", PRIORITIES, d.priority || "none")) +
       field("Due", '<input type="date" data-f="due" value="' + esc(/^\d{4}-\d{2}-\d{2}$/.test(String(d.due || "")) ? d.due : "") + '">') +
       field("Labels", '<div class="labels">' + labelBoxes + "</div>") +
-      field("Blocked by", '<input data-f="blocked_by" placeholder="PROJ-3, PROJ-7" value="' + esc(arr(d.blocked_by).join(", ")) + '">') +
+      field("Blocked by", '<input data-f="blocked_by" placeholder="' + esc(((settings && settings.data.key) || "TASK") + "-3, " + ((settings && settings.data.key) || "TASK") + "-7") + '" value="' + esc(arr(d.blocked_by).join(", ")) + '">') +
       (blk.length ? field("Blocks", esc(blk.map(keyOf).join(", "))) : "") +
       field("Reviewers", '<input data-f="reviewers" placeholder="@handle" value="' + esc(arr(d.reviewers).map(handle).join(", ")) + '">') +
       "</dl>" +
       '<h3>Description</h3><textarea data-f="body" maxlength="10000" placeholder="What done means, and anything else worth knowing">' + esc(d.body || "") + "</textarea>" +
       (drafting ? '<p><button type="button" class="btn primary" id="create">Create task</button></p>' :
         '<p class="meta">Created ' + esc(dateText(t.created)) + (t.author && (t.author.handle || t.author.name) ? " by " + esc(t.author.handle ? handle(t.author.handle) : t.author.name) : "") + " · Last updated " + esc(dateText(t.updated)) + "</p>");
+    var ti = p.querySelector("textarea.title");
+    if (ti) {
+      var fit = function () { ti.style.height = "auto"; ti.style.height = ti.scrollHeight + "px"; };
+      fit(); ti.addEventListener("input", fit);
+      ti.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); if (drafting) createTask(); else ti.blur(); } });
+    }
     $("close").onclick = closePanel;
     if (drafting) { $("create").onclick = createTask; setTimeout(function () { var i = p.querySelector('[data-f="title"]'); if (i) i.focus(); }, 0); return; }
     p.querySelectorAll("[data-f]").forEach(function (el) {
