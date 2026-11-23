@@ -1,6 +1,6 @@
-# Spacesheep skill template
+# Projects skill
 
-A skill teaches an agent one job. This repo holds one skill in the [Agent Skills](https://agentskills.io/specification) format, ready to tag and release, so Spacesheep can take each release as a new version.
+How an agent runs a project on Spacesheep: one space holds the tasks as records, board spaces show and change them. Spacesheep itself knows nothing about projects; everything project-specific lives here. Draft: not released.
 
 Use this template, rename the skill, write its words, and tag `v1.0.0`.
 
@@ -8,9 +8,10 @@ Use this template, rename the skill, write its words, and tag `v1.0.0`.
 
 | Path | What it is |
 |---|---|
-| `my-skill/SKILL.md` | The skill: a `name` and `description`, then the instructions an agent reads |
-| `my-skill/spacesheep.yaml` | Optional: the title, emoji and tags people see in Spacesheep |
-| `my-skill/references/example.md` | A file the instructions point to. Add as many as the skill needs |
+| `projects/SKILL.md` | The skill: how an agent runs a project on Spacesheep |
+| `projects/references/task-shape.md` | The task shape every project's records hold |
+| `proto/task.proto` | The same shape as a protobuf message. Outside the skill folder, so it never enters a version |
+| `projects/spacesheep.yaml` | The title, emoji and tags people see in Spacesheep |
 | `README.md`, `CHANGELOG.md`, `LICENSE`, `.github/` | The repo's own files. They never enter a version |
 | `.github/workflows/check.yml` | Checks the skill on every pull request |
 | `.github/workflows/release.yml` | Turns a `v*` tag into a GitHub release |

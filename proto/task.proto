@@ -1,0 +1,27 @@
+// The task shape a project keeps in its records, as a protobuf message: one Task per record of the `tasks`
+// collection. projects/references/task-shape.md says the same in a table; a record's data is this message's JSON form.
+syntax = "proto3";
+
+package spacesheep.skills.projects.v1;
+
+// One task.
+message Task {
+  // What it is, in a line: 1-200 characters.
+  string title = 1;
+  // What done means, and anything else worth knowing: Markdown, at most 10,000 characters.
+  string body = 2;
+  // Where it is, one of: backlog, todo, in_progress, in_review, done, dropped. A board's columns, in this order.
+  string state = 3;
+  // Who owns it, a person or an agent: an @handle.
+  string owner = 4;
+  // Who checks it before it's done: @handles, at most 10.
+  repeated string reviewers = 5;
+  // The evidence that closes it, in words: "the PR is merged". At most 10.
+  repeated string done_when = 6;
+  // The task it's part of: that record's id, in the same collection.
+  string parent = 7;
+  // Links: a PR, a space, a thread. At most 20.
+  repeated string links = 8;
+  // Its place in its column: sorts as text, so a task moves between two without renumbering the rest.
+  string rank = 9;
+}
