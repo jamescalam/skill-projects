@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<!-- The Projects skill's board (Quiet Ledger). Replace {{SOURCE}} with the database space, @owner/slug, and
+     {{TITLE}} with the board's name. The board reads and writes the database's records through the viewer;
+     the database's owner lists this space as a writer of tasks and settings (update_collection). -->
+<meta name="ss-records" content="{{SOURCE}}/tasks {{SOURCE}}/labels {{SOURCE}}/settings">
+<style>
+:root{--ground:#fbfbfa;--ink:#1b1b1d;--surface:#fff;--accent:#4f46e5;--on-accent:#fff;--muted:#5f6068;--rule:#e6e6e3;--radius:6px;
+  --font:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--ground);color:var(--ink);font:16px/1.4 var(--font)}
+button,input,select,textarea{font:inherit;color:inherit}
+.top{display:flex;flex-direction:column;gap:4px;padding:16px;border-bottom:1px solid var(--rule)}
+.product{font-size:14px;color:var(--muted);margin:0}
+.product a{color:inherit;text-decoration:none}
+.product a:hover,.product a:focus-visible{text-decoration:underline}
+.top h1{font-size:24px;line-height:1.25;font-weight:600;margin:0}
+.bar{display:flex;gap:12px;align-items:center;padding:8px 16px;font-size:14px;color:var(--muted);border-bottom:1px solid var(--rule);flex-wrap:wrap}
+.bar .grow{flex:1}
+.seg{display:inline-flex;border:1px solid var(--rule);border-radius:var(--radius);overflow:hidden}
+.seg button{border:0;background:none;padding:4px 10px;min-height:32px;cursor:pointer;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);font-weight:600}
+.btn{border:1px solid var(--rule);background:var(--surface);border-radius:var(--radius);padding:4px 10px;min-height:32px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.btn.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.btn.primary .kbd{color:inherit;border-color:currentColor}
+.kbd{font:12px ui-monospace,monospace;border:1px solid var(--rule);border-radius:4px;padding:0 5px;color:var(--muted)}
+.note{margin:8px 16px 0;font-size:14px;color:var(--muted)}
+.note:empty{margin:0}
+.note.bad{color:#b91c1c}
+.wrap{container-type:inline-size}
+.split{display:grid;grid-template-columns:1fr}
+.split.open{grid-template-columns:1fr}
+.tabs{display:flex;gap:4px;padding:8px 16px 0;overflow-x:auto}
+.tabs button{border:1px solid var(--rule);background:none;border-radius:99px;padding:4px 12px;min-height:36px;white-space:nowrap;cursor:pointer;color:var(--muted)}
+.tabs button[aria-selected="true"]{background:var(--surface);color:var(--ink);border-color:var(--ink)}
+.cols{display:grid;grid-template-columns:1fr;gap:12px;padding:16px}
+.col h2{display:flex;gap:8px;align-items:baseline;font-size:14px;font-weight:600;margin:0 0 8px}
+.count{color:var(--muted);font-weight:400}
+.col[data-hide]{display:none}
+.col.drop{outline:2px dashed var(--accent);outline-offset:4px;border-radius:var(--radius)}
+.card.land{box-shadow:0 -6px 0 -3px var(--accent)}
+.card{background:var(--surface);user-select:none;border:1px solid var(--rule);border-radius:var(--radius);padding:10px 12px;margin-bottom:8px;width:100%;text-align:left;cursor:pointer;min-height:44px;display:block;line-height:1.4}
+.card[aria-current="true"]{border-color:var(--accent)}
+.card:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.card.fresh{animation:fresh 1.2s ease-out}
+@keyframes fresh{from{box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 35%,transparent)}to{box-shadow:none}}
+.ref{font-size:13px;color:var(--muted);display:block}
+.chips{display:flex;flex-wrap:wrap;height:22px;overflow:hidden;contain:inline-size;gap:6px;margin-top:6px;font-size:13px;line-height:18px;color:var(--muted)}
+.chip{border:1px solid var(--rule);border-radius:99px;padding:1px 8px;display:inline-flex;gap:4px;align-items:center;white-space:nowrap;flex:none;max-width:100%;overflow:hidden}
+.chips>.dot{flex:none;align-self:center}
+.chip.warn{color:#b45309;border-color:#f3d9b1}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.av{width:16px;height:16px;border-radius:50%;background:var(--rule);color:var(--ink);font-size:11px;display:inline-grid;place-items:center}
+.fold{color:var(--muted)}
+.empty{font-size:14px;color:var(--muted);padding:4px 2px}
+table.list{width:calc(100% - 32px);margin:16px;border-collapse:collapse;font-size:14px}
+.list th{text-align:left;font-weight:600;color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--rule)}
+.list td{padding:8px;border-bottom:1px solid var(--rule);vertical-align:top}
+.list tr.row{cursor:pointer}
+.list tr.row:hover td,.list tr.row[aria-current="true"] td{background:var(--surface)}
+.list tr.group td{font-weight:600;padding-top:16px;color:var(--ink)}
+.panel{display:none;border-top:1px solid var(--rule);background:var(--surface);padding:16px;font-size:16px;line-height:1.6}
+.split.open .panel{display:block}
+.panel-head{display:flex;gap:8px;align-items:flex-start}
+.panel-head .grow{flex:1}
+.panel .title{font-size:20px;line-height:1.3;font-weight:600;width:100%;border:1px solid transparent;border-radius:4px;padding:2px 4px;margin:4px 0 0 -5px;background:none;resize:none;overflow:hidden;display:block;min-height:0}
+.panel .title:hover,.panel .title:focus{border-color:var(--rule)}
+.props{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;margin:12px 0;font-size:14px;align-items:center}
+.props dt{color:var(--muted)}
+.props dd{margin:0}
+.props input,.props select{width:100%;border:1px solid var(--rule);border-radius:4px;padding:4px 6px;background:var(--ground);min-height:32px}
+.labels{display:flex;flex-wrap:wrap;gap:6px}
+.labels label{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--rule);border-radius:99px;padding:2px 10px;cursor:pointer;min-height:32px}
+.props .labels input{width:auto;min-height:0;margin:0}
+.dot{flex:none}
+.panel textarea{width:100%;min-height:160px;border:1px solid var(--rule);border-radius:4px;padding:8px;background:var(--ground);line-height:1.5}
+.meta{font-size:13px;color:var(--muted);margin:8px 0 0}
+.panel h3{font-size:14px;color:var(--muted);font-weight:600;margin:16px 0 6px}
+.x{border:0;background:none;font-size:20px;line-height:1;cursor:pointer;color:var(--muted);min-width:32px;min-height:32px}
+dialog.cmd{border:1px solid var(--rule);border-radius:var(--radius);padding:0;width:min(420px,92vw);background:var(--surface);color:var(--ink)}
+dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
+.cmd input{width:100%;border:0;border-bottom:1px solid var(--rule);padding:12px;font-size:15px;background:none}
+.cmd ul{list-style:none;margin:0;padding:0;max-height:60vh;overflow:auto}
+.cmd li{display:flex;justify-content:space-between;padding:10px 12px;border-top:1px solid var(--rule);font-size:15px;min-height:44px;align-items:center;cursor:pointer}
+.cmd li[aria-selected="true"]{background:var(--ground)}
+.cmd li[aria-disabled="true"]{color:var(--muted);cursor:default}
+.split.open #main{display:none}
+.wrap.open .tabs{display:none}
+.col h2{display:none}
+@media (pointer:coarse){.kbd{display:none}}
+@media (max-width:639px){#cmd-btn{display:none}}
+.gate{margin:48px auto;max-width:520px;padding:16px;text-align:center;color:var(--muted)}
+@container (min-width:900px){
+  .tabs{display:none}
+  .col[data-hide]{display:block}
+  .cols{grid-template-columns:repeat(5,minmax(0,1fr))}
+  .split.open{grid-template-columns:60% 40%}
+  .split.open #main{display:block}
+  .col h2{display:flex}
+  .panel{border-top:0;border-left:1px solid var(--rule);max-height:calc(100vh - 120px);overflow:auto;position:sticky;top:0}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<header class="top">
+  <p class="product" id="product">Projects</p>
+  <h1>{{TITLE}}</h1>
+</header>
+<div class="bar">
+  <span class="seg" role="group" aria-label="View">
+    <button type="button" id="v-board" aria-pressed="true">Board</button><button type="button" id="v-list" aria-pressed="false">List</button>
+  </span>
+  <span class="kbd" title="Switch between board and list">⌘B</span>
+  <span class="grow"></span>
+  <button type="button" class="btn" id="cmd-btn">Command menu <span class="kbd">⌘K</span></button>
+  <button type="button" class="btn primary" id="new-btn">New task <span class="kbd">N</span></button>
+</div>
+<p class="note" id="note" aria-live="polite"></p>
+<div class="wrap">
+  <div class="tabs" id="tabs" role="tablist" aria-label="Status"></div>
+  <div class="split" id="split">
+    <div id="main"><p class="empty" style="padding:16px">Loading tasks…</p></div>
+    <aside class="panel" id="panel" aria-label="Task"></aside>
+  </div>
+</div>
+<dialog class="cmd" id="cmd" aria-label="Command menu">
+  <input id="cmd-q" placeholder="Type a command" autocomplete="off" aria-label="Command">
+  <ul id="cmd-list" role="listbox"></ul>
+</dialog>
+<script>
+(function () {
+  "use strict";
+  var SRC = "{{SOURCE}}";
+  var TASKS = SRC + "/tasks", LABELS = SRC + "/labels", SETTINGS = SRC + "/settings";
+  var STATES = [["backlog", "Backlog"], ["todo", "Todo"], ["in_progress", "In progress"], ["in_review", "In review"], ["done", "Done"]];
+  var PRIORITIES = [["urgent", "Urgent"], ["high", "High"], ["medium", "Medium"], ["low", "Low"], ["none", "No priority"]];
+  var VIEW_KEY = "projects-board:" + SRC;
+
+  // --- Talking to the viewer: every read and write goes through it, as the reader. ---
+  var framed = window.parent !== window;
+  var hostOrigin = (function () {
+    try { if (location.ancestorOrigins && location.ancestorOrigins.length) return location.ancestorOrigins[0]; } catch (e) {}
+    try { if (document.referrer) return new URL(document.referrer).origin; } catch (e) {}
+    return "*";
+  })();
+  var seq = 0, waiting = {};
+  function call(msg) {
+    return new Promise(function (resolve) {
+      if (!framed) return resolve({ ok: false, status: 0, error: "not_framed", message: "Open this board on Spacesheep to see its tasks." });
+      var id = "pb" + (++seq) + "-" + Date.now().toString(36);
+      waiting[id] = resolve;
+      msg.type = "ss-records"; msg.id = id;
+      try { window.parent.postMessage(msg, hostOrigin); } catch (e) { delete waiting[id]; return resolve({ ok: false, status: 0, error: "post", message: "Couldn't reach Spacesheep." }); }
+      setTimeout(function () { if (waiting[id]) { delete waiting[id]; resolve({ ok: false, status: 0, error: "timeout", message: "Spacesheep didn't answer. Try again." }); } }, 20000);
+    });
+  }
+  window.addEventListener("message", function (e) {
+    if (e.source !== window.parent) return;
+    var d = e.data;
+    if (d && d.type === "ss-records-result" && waiting[d.id]) { var r = waiting[d.id]; delete waiting[d.id]; r(d); }
+  });
+  // A read that met a passing server error is asked again, twice at most; a write never is (it may have landed).
+  function read(msg, tries) {
+    tries = tries || 0;
+    return call(Object.assign({}, msg)).then(function (r) {
+      if (!r.ok && (r.status >= 500 || r.status === 0) && r.error !== "not_framed" && tries < 2) return new Promise(function (ok) { setTimeout(ok, 300 * (tries + 1)); }).then(function () { return read(msg, tries + 1); });
+      return r;
+    });
+  }
+  function num(v) { var n = Number(v); return isFinite(n) ? n : 0; }
+  function norm(rec) {
+    return { id: rec.id, data: rec.data || {}, revision: num(rec.revision), author: rec.author || null,
+      created: rec.created_at || rec.createdAt || null, updated: rec.updated_at || rec.updatedAt || null };
+  }
+  function listAll(source) {
+    var out = [];
+    function page(after) {
+      var q = { op: "list", source: source, limit: 200 };
+      if (after) q.after = after;
+      return read(q).then(function (r) {
+        if (!r.ok) throw r;
+        (r.records || []).forEach(function (x) { out.push(norm(x)); });
+        var next = r.page && r.page.next;
+        return next && out.length < 2000 ? page(next) : out;
+      });
+    }
+    return page(null);
+  }
+  function getOne(source, id) {
+    return read({ op: "get", source: source, record: id }).then(function (r) { if (!r.ok) throw r; return norm(r.record); });
+  }
+
+  // --- State ---
+  var tasks = {}, labels = {}, settings = null;
+  var view = { mode: "board", tab: "todo", showDone: false };
+  try { var saved = JSON.parse(localStorage.getItem(VIEW_KEY) || "{}"); if (saved && typeof saved === "object") { if (saved.mode === "list") view.mode = "list"; if (saved.tab) view.tab = String(saved.tab); view.showDone = !!saved.showDone; } } catch (e) {}
+  function keepView() { try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch (e) {} }
+  // The last tasks this reader saw, so a board they open again draws at once and then catches up.
+  var CACHE_KEY = "projects-cache:" + SRC;
+  var cacheTimer = 0;
+  function keepCache() {
+    clearTimeout(cacheTimer);
+    cacheTimer = setTimeout(function () {
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify({ t: Object.keys(tasks).map(function (k) { return tasks[k]; }).filter(function (t) { return !t.pending; }), l: Object.keys(labels).map(function (k) { return labels[k]; }), s: settings })); } catch (e) {}
+    }, 300);
+  }
+  function forgetCache() { try { localStorage.removeItem(CACHE_KEY); } catch (e) {} }
+  function fromCache() {
+    try {
+      var c = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
+      if (!c || !Array.isArray(c.t)) return false;
+      c.t.forEach(function (t) { if (t && t.id) tasks[t.id] = t; });
+      (c.l || []).forEach(function (l) { if (l && l.id) labels[l.id] = l; });
+      settings = c.s || null; showProduct(); return true;
+    } catch (e) { return false; }
+  }
+  var openId = null, drafting = false, loaded = false;
+
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+  function note(t, bad) { var n = $("note"); n.textContent = t || ""; n.className = "note" + (bad ? " bad" : ""); }
+  function arr(v) { return Array.isArray(v) ? v : []; }
+  function handle(h) { h = String(h || "").trim(); return h ? (h[0] === "@" ? h : "@" + h) : ""; }
+  function stateOf(t) { var s = t.data.state; return STATES.some(function (x) { return x[0] === s; }) || s === "dropped" ? s : "backlog"; }
+  function keyOf(t) { return String(t.data.key || ""); }
+  function byKey(k) { for (var id in tasks) if (keyOf(tasks[id]) === k) return tasks[id]; return null; }
+  function goodColor(c) { return /^#[0-9a-fA-F]{6}$/.test(String(c || "")) ? c : "#6b7280"; }
+  function dateText(iso) { if (!iso) return ""; var d = new Date(iso); return isNaN(d) ? "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric" }); }
+  function dueText(due) { return /^\d{4}-\d{2}-\d{2}$/.test(String(due || "")) ? dateText(due + "T12:00:00") : ""; }
+  function overdue(t) { var d = t.data.due; return /^\d{4}-\d{2}-\d{2}$/.test(String(d || "")) && stateOf(t) !== "done" && d < new Date().toISOString().slice(0, 10); }
+
+  // Ranks are text in 0-9a-z that sort between neighbours, and never end in 0, so there's always room.
+  var AL = "0123456789abcdefghijklmnopqrstuvwxyz";
+  function between(a, b) {
+    a = a || ""; var out = "", i = 0;
+    for (;;) {
+      var ca = i < a.length ? AL.indexOf(a[i]) : 0;
+      var cb = b != null && i < b.length ? AL.indexOf(b[i]) : 36;
+      if (ca < 0) ca = 0; if (cb < 0) cb = 36;
+      if (cb - ca > 1) return out + AL[(ca + cb) >> 1];
+      out += AL[ca];
+      if (cb - ca === 1) b = null;
+      i++;
+      if (i > 40) return out + "i";
+    }
+  }
+  function sorted(list) {
+    return list.sort(function (x, y) {
+      var rx = String(x.data.rank || ""), ry = String(y.data.rank || "");
+      if (rx && ry && rx !== ry) return rx < ry ? -1 : 1;
+      if (!rx !== !ry) return rx ? -1 : 1;
+      return String(x.created || "") < String(y.created || "") ? -1 : 1;
+    });
+  }
+  function inState(s) { return sorted(Object.keys(tasks).map(function (k) { return tasks[k]; }).filter(function (t) { return stateOf(t) === s; })); }
+  function blocks(t) { var k = keyOf(t); if (!k) return []; return Object.keys(tasks).map(function (i) { return tasks[i]; }).filter(function (o) { return arr(o.data.blocked_by).indexOf(k) >= 0; }); }
+  function openBlockers(t) { return arr(t.data.blocked_by).filter(function (k) { var b = byKey(k); return !b || (stateOf(b) !== "done" && stateOf(b) !== "dropped"); }); }
+
+  // --- Drawing ---
+  function chipsFor(t) {
+    var who = arr(t.data.assignees).map(handle).filter(Boolean), h = "";
+    if (who.length) h = '<span class="chip"><span class="av">' + esc(who[0].slice(1, 2).toUpperCase()) + "</span>" + esc(who[0].slice(1)) + (who.length > 1 ? " +" + (who.length - 1) : "") + "</span>";
+    var p = t.data.priority; if (p && p !== "none") h += '<span class="chip">' + esc((PRIORITIES.filter(function (x) { return x[0] === p; })[0] || [p, p])[1]) + "</span>";
+    var due = dueText(t.data.due); if (due) h += '<span class="chip' + (overdue(t) ? " warn" : "") + '">' + esc(due) + "</span>";
+    // One line: who, priority, due, then a dot per label (its name is spoken, and shown on hover).
+    // A chip that doesn't fit whole goes to a second row the card never shows. Only an overdue date is amber.
+    arr(t.data.labels).forEach(function (id) { var l = labels[id]; if (l) h += '<span class="dot" role="img" aria-label="' + esc(l.data.name) + '" title="' + esc(l.data.name) + '" style="background:' + goodColor(l.data.color) + '"></span>'; });
+    var ob = openBlockers(t); if (ob.length) h += '<span class="chip">Blocked by ' + esc(ob.slice(0, 2).join(", ")) + (ob.length > 2 ? " +" + (ob.length - 2) : "") + "</span>";
+    return h ? '<span class="chips" id="chips-' + esc(t.id) + '">' + h + "</span>" : "";
+  }
+  function cardHtml(t) {
+    // A div, not a button: browsers don't all let a button be dragged. Enter and Space open it, as a button's would.
+    var c = chipsFor(t);
+    return '<div role="button" tabindex="0" class="card" draggable="true" data-id="' + esc(t.id) + '"' + (c ? ' aria-describedby="chips-' + esc(t.id) + '"' : "") + (t.id === openId ? ' aria-current="true"' : "") + ">" +
+      (keyOf(t) ? '<span class="ref">' + esc(keyOf(t)) + "</span>" : t.pending ? '<span class="ref">Adding\u2026</span>' : "") + esc(t.data.title || "Untitled") + c + "</div>";
+  }
+  function drawTabs() {
+    var tabs = $("tabs");
+    if (view.mode !== "board") { tabs.innerHTML = ""; return; }
+    tabs.innerHTML = STATES.map(function (s) {
+      return '<button type="button" role="tab" data-tab="' + s[0] + '" aria-selected="' + (view.tab === s[0]) + '">' + esc(s[1]) + ' <span class="count">' + inState(s[0]).length + "</span></button>";
+    }).join("");
+  }
+  function drawBoard() {
+    return '<div class="cols">' + STATES.map(function (s) {
+      var list = inState(s[0]), hide = view.tab !== s[0] ? " data-hide" : "";
+      var body;
+      if (s[0] === "done" && !view.showDone) body = list.length ? '<button type="button" class="card fold" data-fold="open">' + list.length + " done · Show</button>" : '<p class="empty">Nothing done yet.</p>';
+      else {
+        body = list.map(cardHtml).join("") || (s[0] === "todo" && !Object.keys(tasks).length ? '<p class="empty">No tasks yet. Press N, or New task, to add the first.</p>' : '<p class="empty">No tasks.</p>');
+        if (s[0] === "done" && list.length) body += '<button type="button" class="card fold" data-fold="close">Fold done tasks</button>';
+      }
+      return '<section class="col" data-state="' + s[0] + '"' + hide + '><h2>' + esc(s[1]) + ' <span class="count">' + list.length + "</span></h2>" + body + "</section>";
+    }).join("") + "</div>";
+  }
+  function drawList() {
+    var rows = STATES.map(function (s) {
+      var list = inState(s[0]);
+      var head = '<tr class="group"><td colspan="5">' + esc(s[1]) + ' <span class="count">' + list.length + "</span></td></tr>";
+      if (s[0] === "done" && !view.showDone) return head + (list.length ? '<tr class="row" data-fold="open"><td colspan="5" class="fold">' + list.length + " done · Show</td></tr>" : "");
+      return head + list.map(function (t) {
+        return '<tr class="row" data-id="' + esc(t.id) + '"' + (t.id === openId ? ' aria-current="true"' : "") + "><td>" + esc(keyOf(t)) + "</td><td>" + esc(t.data.title || "Untitled") +
+          "</td><td>" + esc(arr(t.data.assignees).map(handle).join(", ")) + "</td><td>" + esc(t.data.priority && t.data.priority !== "none" ? t.data.priority : "") + "</td><td>" + esc(dueText(t.data.due)) + "</td></tr>";
+      }).join("");
+    }).join("");
+    return '<table class="list"><thead><tr><th>Key</th><th>Title</th><th>Assignees</th><th>Priority</th><th>Due</th></tr></thead><tbody>' + rows + "</tbody></table>";
+  }
+  function draw() {
+    if (!loaded) return;
+    $("v-board").setAttribute("aria-pressed", view.mode === "board");
+    $("v-list").setAttribute("aria-pressed", view.mode === "list");
+    drawTabs();
+    $("main").innerHTML = view.mode === "board" ? drawBoard() : drawList();
+    $("split").classList.toggle("open", !!(openId || drafting));
+    document.querySelector(".wrap").classList.toggle("open", !!(openId || drafting));
+  }
+
+  // --- The task panel ---
+  function field(label, html) { return "<dt>" + esc(label) + "</dt><dd>" + html + "</dd>"; }
+  function select(name, opts, cur) { return '<select data-f="' + name + '">' + opts.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === cur ? " selected" : "") + ">" + esc(o[1]) + "</option>"; }).join("") + "</select>"; }
+  function drawPanel() {
+    var p = $("panel");
+    if (!openId && !drafting) { p.innerHTML = ""; return; }
+    var t = drafting ? { id: null, data: { state: view.mode === "board" && view.tab !== "done" ? view.tab : "todo", priority: "none" } } : tasks[openId];
+    if (!t) { openId = null; p.innerHTML = ""; draw(); return; }
+    var d = t.data;
+    var labelBoxes = Object.keys(labels).map(function (id) { var l = labels[id];
+      return '<label><input type="checkbox" data-label="' + esc(id) + '"' + (arr(d.labels).indexOf(id) >= 0 ? " checked" : "") + '><span class="dot" style="background:' + goodColor(l.data.color) + '"></span>' + esc(l.data.name) + "</label>"; }).join("") || '<span class="meta">No labels in this project.</span>';
+    var blk = drafting ? [] : blocks(t);
+    p.innerHTML =
+      '<div class="panel-head"><div class="grow"><span class="ref">' + esc(drafting ? "New task" : (keyOf(t) || "Task")) + (settings && settings.data.name && settings.data.name !== document.querySelector(".top h1").textContent.trim() ? " · " + esc(settings.data.name) : "") + "</span>" +
+      '<textarea class="title" data-f="title" maxlength="200" rows="1" placeholder="Task title" aria-label="Title">' + esc(d.title || "") + "</textarea></div>" +
+      '<button type="button" class="x" id="close" aria-label="Close the task">×</button></div>' +
+      '<dl class="props">' +
+      field("Status", select("state", STATES.concat([["dropped", "Dropped"]]), stateOf(t))) +
+      field("Assignees", '<input data-f="assignees" placeholder="@handle, @handle" value="' + esc(arr(d.assignees).map(handle).join(", ")) + '">') +
+      field("Priority", select("priority", PRIORITIES, d.priority || "none")) +
+      field("Due", '<input type="date" data-f="due" value="' + esc(/^\d{4}-\d{2}-\d{2}$/.test(String(d.due || "")) ? d.due : "") + '">') +
+      field("Labels", '<div class="labels">' + labelBoxes + "</div>") +
+      field("Blocked by", '<input data-f="blocked_by" placeholder="' + esc(((settings && settings.data.key) || "TASK") + "-3, " + ((settings && settings.data.key) || "TASK") + "-7") + '" value="' + esc(arr(d.blocked_by).join(", ")) + '">') +
+      (blk.length ? field("Blocks", esc(blk.map(keyOf).join(", "))) : "") +
+      field("Reviewers", '<input data-f="reviewers" placeholder="@handle" value="' + esc(arr(d.reviewers).map(handle).join(", ")) + '">') +
+      "</dl>" +
+      '<h3>Description</h3><textarea data-f="body" maxlength="10000" placeholder="What done means, and anything else worth knowing">' + esc(d.body || "") + "</textarea>" +
+      (drafting ? '<p><button type="button" class="btn primary" id="create">Create task</button></p>' :
+        '<p class="meta">Created ' + esc(dateText(t.created)) + (t.author && (t.author.handle || t.author.name) ? " by " + esc(t.author.handle ? handle(t.author.handle) : t.author.name) : "") + " · Last updated " + esc(dateText(t.updated)) + "</p>");
+    var ti = p.querySelector("textarea.title");
+    if (ti) {
+      var fit = function () { ti.style.height = "auto"; ti.style.height = ti.scrollHeight + "px"; };
+      fit(); ti.addEventListener("input", fit);
+      ti.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); if (drafting) createTask(); else ti.blur(); } });
+    }
+    $("close").onclick = closePanel;
+    if (drafting) { $("create").onclick = createTask; setTimeout(function () { var i = p.querySelector('[data-f="title"]'); if (i) i.focus(); }, 0); return; }
+    p.querySelectorAll("[data-f]").forEach(function (el) {
+      el.addEventListener("change", function () { saveField(el.getAttribute("data-f"), el.value); });
+    });
+    p.querySelectorAll("[data-label]").forEach(function (el) {
+      el.addEventListener("change", function () {
+        var cur = arr(tasks[openId] && tasks[openId].data.labels).slice(), id = el.getAttribute("data-label");
+        if (el.checked) { if (cur.indexOf(id) < 0) cur.push(id); } else cur = cur.filter(function (x) { return x !== id; });
+        save(openId, { labels: cur.slice(0, 10) });
+      });
+    });
+  }
+  function parseList(name, v) {
+    var parts = String(v || "").split(/[\s,]+/).filter(Boolean);
+    if (name === "assignees" || name === "reviewers") return parts.map(handle).slice(0, 10);
+    return parts.map(function (k) { return k.toUpperCase(); }).slice(0, 20);
+  }
+  function fieldValue(name, v) {
+    if (name === "assignees" || name === "reviewers" || name === "blocked_by") return parseList(name, v);
+    if (name === "title") return String(v).trim().slice(0, 200);
+    return v;
+  }
+  function saveField(name, v) {
+    var change = {}; change[name] = fieldValue(name, v);
+    if (name === "title" && !change.title) { note("A task needs a title.", true); drawPanel(); return; }
+    save(openId, change);
+  }
+  function openTask(id) { drafting = false; openId = id; draw(); drawPanel(); }
+  function closePanel() { openId = null; drafting = false; draw(); drawPanel(); }
+
+  // --- Writing: a change shows at once, then goes out in order, one at a time per task, each with the
+  //     revision it read. A conflict re-reads and lays the change on again once; a refusal puts the card back. ---
+  var queued = {}, chain = {};
+  function overlay(rec) { var q = queued[rec.id] || []; if (!q.length) return rec; var d = Object.assign({}, rec.data); q.forEach(function (c) { Object.assign(d, c); }); return Object.assign({}, rec, { data: d }); }
+  function shown(id) { draw(); if (id === openId && !editing()) drawPanel(); keepCache(); }
+  function save(id, change) {
+    if (!tasks[id]) return Promise.resolve(false);
+    (queued[id] = queued[id] || []).push(change);
+    tasks[id] = overlay(Object.assign({}, tasks[id]));
+    shown(id);
+    var run = (chain[id] || Promise.resolve()).then(function () { return send(id, change, 0); });
+    chain[id] = run.then(function () {}, function () {});
+    return run;
+  }
+  function settle(id, rec, ok) {
+    var q = queued[id] || []; q.shift(); if (!q.length) delete queued[id];
+    if (rec) tasks[id] = overlay(rec);
+    shown(id); return ok;
+  }
+  function send(id, change, tries) {
+    var t = tasks[id]; if (!t) return Promise.resolve(false);
+    return call({ op: "update", source: TASKS, record: id, revision: t.revision, data: Object.assign({}, t.data, change) }).then(function (r) {
+      if (r.ok && r.record) { note(""); return settle(id, norm(r.record), true); }
+      if (r.status === 409 && tries < 1) return getOne(TASKS, id).then(function (fresh) { tasks[id] = overlay(fresh); return send(id, change, tries + 1); });
+      note(r.status === 409 ? "Someone changed this task at the same time. It shows their version now: make your change again." : (r.message || "That change didn't save."), true);
+      return getOne(TASKS, id).then(function (fresh) { return settle(id, fresh, false); }, function () { return settle(id, null, false); });
+    });
+  }
+  function claimKey(tries) {
+    tries = tries || 0;
+    if (!settings) {
+      if (tries) return Promise.reject({ message: "This project has no settings record yet, so it can't number new tasks." });
+      return listAll(SETTINGS).then(function (got) { settings = got[0] || null; return claimKey(1); });
+    }
+    var n = Math.max(1, Math.floor(num(settings.data.next)) || 1);
+    var data = Object.assign({}, settings.data, { next: n + 1 });
+    return call({ op: "update", source: SETTINGS, record: settings.id, revision: settings.revision, data: data }).then(function (r) {
+      if (r.ok && r.record) { settings = norm(r.record); return String(settings.data.key || "TASK") + "-" + n; }
+      if (r.status === 409 && tries < 6) return getOne(SETTINGS, settings.id).then(function (s) { settings = s; return claimKey(tries + 1); });
+      throw r;
+    });
+  }
+  // A new task shows at once with its key to come; its key is claimed, then it is made, one claim at a time.
+  var claims = Promise.resolve(), made = 0;
+  function createTask() {
+    var p = $("panel"), data = {};
+    p.querySelectorAll("[data-f]").forEach(function (el) { var f = el.getAttribute("data-f"), v = fieldValue(f, el.value); if (v !== "" && !(Array.isArray(v) && !v.length)) data[f] = v; });
+    var ls = []; p.querySelectorAll("[data-label]:checked").forEach(function (el) { ls.push(el.getAttribute("data-label")); }); if (ls.length) data.labels = ls;
+    if (!data.title) { note("A task needs a title.", true); return; }
+    var col = inState(data.state || "todo"), last = col.length ? col[col.length - 1].data.rank : "";
+    data.rank = between(last || "", null);
+    var tmp = "new-" + (++made), now = new Date().toISOString();
+    tasks[tmp] = { id: tmp, data: Object.assign({ key: "" }, data), revision: 0, author: null, created: now, updated: now, pending: true };
+    drafting = false; openId = null;
+    if (view.mode === "board") view.tab = stateOf(tasks[tmp]);
+    draw(); drawPanel(); flash(tmp);
+    var run = claims.then(function () { return claimKey(); });
+    claims = run.then(function () {}, function () {});
+    run.then(function (key) {
+      data.key = key;
+      return call({ op: "create", source: TASKS, data: data });
+    }).then(function (r) {
+      if (!r.ok || !r.record) throw r;
+      var t = norm(r.record); delete tasks[tmp]; tasks[t.id] = t;
+      note(""); draw(); flash(t.id); keepCache();
+    }).catch(function (r) {
+      delete tasks[tmp]; draw();
+      note(((r && r.message) || "The task wasn't created.") + " \u201c" + data.title + "\u201d is not on the board.", true);
+    });
+  }
+  function move(id, state, beforeId) {
+    var t = tasks[id]; if (!t) return;
+    var col = inState(state).filter(function (x) { return x.id !== id; });
+    var at = beforeId ? col.findIndex(function (x) { return x.id === beforeId; }) : col.length;
+    if (at < 0) at = col.length;
+    var prev = at > 0 ? col[at - 1].data.rank : "", next = at < col.length ? col[at].data.rank : null;
+    save(id, { state: state, rank: between(prev || "", next || null) });
+  }
+  function editing() { var a = document.activeElement; return !!(a && $("panel").contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName)); }
+  function flash(id) { var el = document.querySelector('.card[data-id="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]'); if (el) { el.classList.remove("fresh"); void el.offsetWidth; el.classList.add("fresh"); } }
+
+  // --- Live: the viewer says which records changed; re-read just those. ---
+  document.addEventListener("ss:records", function (e) {
+    var d = e.detail || {}, src = d.source ? String(d.source).toLowerCase() : null;
+    if (src && src.indexOf(SRC.toLowerCase() + "/") !== 0) return;
+    var c = d.collection, source = c === "labels" ? LABELS : c === "settings" ? SETTINGS : c === "tasks" ? TASKS : null;
+    if (!source) return;
+    if (d.all || !arr(d.ids).length) { load(true); return; }
+    arr(d.ids).forEach(function (id) {
+      getOne(source, id).then(function (rec) {
+        if (source === TASKS) { var was = tasks[rec.id]; tasks[rec.id] = overlay(rec); draw(); if (!was || was.revision !== rec.revision) flash(rec.id); if (rec.id === openId && !editing()) drawPanel(); keepCache(); }
+        else if (source === LABELS) { labels[rec.id] = rec; draw(); }
+        else settings = rec;
+      }, function (r) {
+        if (r && r.status === 404) { if (source === TASKS) { delete tasks[id]; if (openId === id) openId = null; } else if (source === LABELS) delete labels[id]; draw(); drawPanel(); }
+      });
+    });
+  });
+
+  // --- Loading ---
+  function showProduct() {
+    if (!settings) return;
+    var name = settings.data.name || "", h1 = document.querySelector(".top h1").textContent.trim();
+    var text = "Projects · " + (settings.data.key || "") + (name && name !== h1 ? " · " + name : ""), home = String(settings.data.home || "");
+    // The project's home (the database space), when the settings record names one on Spacesheep's own address.
+    $("product").innerHTML = /^https?:\/\/[^/]+\/@[a-z0-9-]+\/[a-z0-9-]+$/.test(home) ? '<a href="' + esc(home) + '">' + esc(text) + "</a>" : esc(text);
+  }
+  function load(quiet) {
+    return Promise.all([listAll(TASKS), listAll(LABELS).catch(function () { return []; }), listAll(SETTINGS).catch(function () { return []; })]).then(function (got) {
+      tasks = {}; got[0].forEach(function (t) { tasks[t.id] = t; });
+      labels = {}; got[1].forEach(function (l) { labels[l.id] = l; });
+      settings = got[2][0] || null;
+      showProduct(); keepCache();
+      loaded = true; if (!quiet) note(""); draw(); drawPanel();
+    }, function (r) {
+      if (loaded && r && (r.status === 0 || r.status >= 500)) { note("Couldn't reach Spacesheep: showing the tasks as they were. Changes will try again.", true); return; }
+      loaded = false; forgetCache();
+      $("main").innerHTML = '<div class="gate"><p>' + esc((r && r.message) || "The tasks didn't load.") + '</p><p><button type="button" class="btn" id="retry">Try again</button></p></div>';
+      $("retry").onclick = function () { load(); };
+    });
+  }
+
+  // --- Command menu and keys. C, / and Escape belong to Spacesheep, so the board never takes them. ---
+  var actions = [
+    { label: "New task", key: "N", run: newTask },
+    { label: "Board or list", key: "⌘B", run: toggleView },
+    { label: "Change status", key: "S", task: true, run: function () { focusField("state"); } },
+    { label: "Assign", key: "A", task: true, run: function () { focusField("assignees"); } },
+    { label: "Priority", key: "P", task: true, run: function () { focusField("priority"); } },
+    { label: "Labels", key: "L", task: true, run: function () { var el = $("panel").querySelector("[data-label]"); if (el) el.focus(); } },
+    { label: "Due date", key: "D", task: true, run: function () { focusField("due"); } },
+    { label: "Next task", key: "J", run: function () { step(1); } },
+    { label: "Previous task", key: "K", run: function () { step(-1); } },
+    { label: "Show or fold done tasks", key: "⇧D", run: function () { view.showDone = !view.showDone; keepView(); draw(); } },
+    { label: "Close the task", key: "×", task: true, run: closePanel }
+  ];
+  function newTask() { openId = null; drafting = true; draw(); drawPanel(); }
+  function toggleView() { view.mode = view.mode === "board" ? "list" : "board"; keepView(); draw(); }
+  function focusField(f) { var el = $("panel").querySelector('[data-f="' + f + '"]'); if (el) el.focus(); }
+  function step(dir) {
+    var order = [];
+    STATES.forEach(function (s) { if (s[0] !== "done" || view.showDone) inState(s[0]).forEach(function (t) { order.push(t.id); }); });
+    if (!order.length) return;
+    var i = order.indexOf(openId); i = i < 0 ? (dir > 0 ? 0 : order.length - 1) : Math.min(order.length - 1, Math.max(0, i + dir));
+    openTask(order[i]);
+    if (view.mode === "board") { view.tab = stateOf(tasks[order[i]]); draw(); }
+    var el = document.querySelector('[data-id="' + (window.CSS && CSS.escape ? CSS.escape(order[i]) : order[i]) + '"]'); if (el) el.focus();
+  }
+  var cmdSel = 0;
+  function cmdItems() {
+    var q = $("cmd-q").value.trim().toLowerCase();
+    return actions.filter(function (a) { return !q || a.label.toLowerCase().indexOf(q) >= 0; });
+  }
+  function drawCmd() {
+    var items = cmdItems(); if (cmdSel >= items.length) cmdSel = Math.max(0, items.length - 1);
+    $("cmd-list").innerHTML = items.map(function (a, i) {
+      var off = a.task && !openId;
+      return '<li role="option" data-i="' + i + '" aria-selected="' + (i === cmdSel) + '"' + (off ? ' aria-disabled="true" title="Open a task first"' : "") + "><span>" + esc(a.label) + '</span><span class="kbd">' + esc(a.key) + "</span></li>";
+    }).join("") || '<li aria-disabled="true">No command matches.</li>';
+  }
+  function runCmd(a) { if (!a || (a.task && !openId)) return; $("cmd").close(); a.run(); }
+  function openCmd() { var c = $("cmd"); if (c.open) return; $("cmd-q").value = ""; cmdSel = 0; drawCmd(); c.showModal(); $("cmd-q").focus(); }
+  $("cmd-q").addEventListener("input", function () { cmdSel = 0; drawCmd(); });
+  $("cmd-q").addEventListener("keydown", function (e) {
+    var items = cmdItems();
+    if (e.key === "ArrowDown") { cmdSel = Math.min(items.length - 1, cmdSel + 1); drawCmd(); e.preventDefault(); }
+    else if (e.key === "ArrowUp") { cmdSel = Math.max(0, cmdSel - 1); drawCmd(); e.preventDefault(); }
+    else if (e.key === "Enter") { runCmd(items[cmdSel]); e.preventDefault(); }
+  });
+  $("cmd-list").addEventListener("click", function (e) { var li = e.target.closest("li[data-i]"); if (li) runCmd(cmdItems()[+li.getAttribute("data-i")]); });
+
+  document.addEventListener("keydown", function (e) {
+    var meta = e.metaKey || e.ctrlKey, k = e.key.toLowerCase();
+    if (meta && k === "k") { e.preventDefault(); openCmd(); return; }
+    if (meta && k === "b") { e.preventDefault(); toggleView(); return; }
+    if (meta || e.altKey || $("cmd").open) return;
+    var a = document.activeElement;
+    if (a && (/INPUT|TEXTAREA|SELECT/.test(a.tagName) || a.isContentEditable)) return;
+    var hit = null;
+    if (k === "n") hit = actions[0];
+    else if (k === "j") hit = actions[7];
+    else if (k === "k") hit = actions[8];
+    else if (k === "d" && e.shiftKey) hit = actions[9];
+    else if (openId && !e.shiftKey) hit = { s: actions[2], a: actions[3], p: actions[4], l: actions[5], d: actions[6] }[k] || null;
+    if (hit) { e.preventDefault(); runCmd(hit); }
+  });
+
+  // --- Clicks, tabs and drag. ---
+  $("v-board").onclick = function () { if (view.mode !== "board") toggleView(); };
+  $("v-list").onclick = function () { if (view.mode !== "list") toggleView(); };
+  $("cmd-btn").onclick = openCmd;
+  $("new-btn").onclick = newTask;
+  $("tabs").addEventListener("click", function (e) { var b = e.target.closest("[data-tab]"); if (!b) return; view.tab = b.getAttribute("data-tab"); keepView(); draw(); });
+  $("main").addEventListener("click", function (e) {
+    var f = e.target.closest("[data-fold]"); if (f) { view.showDone = f.getAttribute("data-fold") === "open"; keepView(); draw(); return; }
+    var c = e.target.closest("[data-id]"); if (c && !/^new-/.test(c.getAttribute("data-id"))) openTask(c.getAttribute("data-id"));
+  });
+  $("main").addEventListener("keydown", function (e) {
+    var c = e.target.closest('.card[data-id]');
+    if (c && e.target === c && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); if (!/^new-/.test(c.getAttribute("data-id"))) openTask(c.getAttribute("data-id")); }
+  });
+  var dragId = null;
+  $("main").addEventListener("dragstart", function (e) { var c = e.target.closest(".card[data-id]"); if (!c || /^new-/.test(c.getAttribute("data-id"))) { e.preventDefault(); return; } dragId = c.getAttribute("data-id"); e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", dragId); } catch (x) {} });
+  // Where a dropped card lands: before the first card whose middle is below the pointer, else at the end.
+  function landing(col, y) { var before = null; col.querySelectorAll(".card[data-id]").forEach(function (c) { if (before) return; var r = c.getBoundingClientRect(); if (y < r.top + r.height / 2 && c.getAttribute("data-id") !== dragId) before = c; }); return before; }
+  function clearMarks() { document.querySelectorAll(".col.drop").forEach(function (x) { x.classList.remove("drop"); }); document.querySelectorAll(".card.land").forEach(function (x) { x.classList.remove("land"); }); }
+  $("main").addEventListener("dragover", function (e) {
+    var col = e.target.closest(".col"); if (!col || !dragId) return; e.preventDefault();
+    var at = landing(col, e.clientY);
+    if (!col.classList.contains("drop") || !(at ? at.classList.contains("land") : !col.querySelector(".card.land"))) { clearMarks(); col.classList.add("drop"); if (at) at.classList.add("land"); }
+  });
+  $("main").addEventListener("dragleave", function (e) { var col = e.target.closest(".col"); if (col && !col.contains(e.relatedTarget)) { col.classList.remove("drop"); col.querySelectorAll(".card.land").forEach(function (x) { x.classList.remove("land"); }); } });
+  $("main").addEventListener("drop", function (e) {
+    var col = e.target.closest(".col"); if (!col || !dragId) return; e.preventDefault();
+    var at = landing(col, e.clientY), id = dragId; clearMarks(); dragId = null; move(id, col.getAttribute("data-state"), at ? at.getAttribute("data-id") : null);
+  });
+  $("main").addEventListener("dragend", function () { dragId = null; clearMarks(); });
+
+  if (!framed) { $("main").innerHTML = '<div class="gate"><p>Open this board on Spacesheep to see its tasks.</p></div>'; return; }
+  if (fromCache()) { loaded = true; draw(); }
+  load(true);
+})();
+</script>
+</body>
+</html>
