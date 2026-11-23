@@ -3,33 +3,92 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{NAME}} · tasks</title>
-<!-- The Projects skill's database page. Keep this meta on every publish: a publish without it sends the
-     collections back to private, and every board loses them. -->
+<title>{{NAME}}</title>
+<!-- The Projects skill's database page: the project's home. Keep the spacesheep:records meta on every publish: a
+     publish without it sends the collections back to private, and every board loses them. {{SOURCE}} is this space
+     as @owner/slug (empty on the very first version, before it has an address), {{BOARDS}} one <a> per board. -->
 <meta name="spacesheep:records" content='{"tasks":{"mode":"shared","edit":"any"},"labels":{"mode":"shared","edit":"any"},"settings":{"mode":"shared","edit":"any"}}'>
+<meta name="ss-records" content="{{SOURCE}}/tasks">
 <style>
-:root{--ground:#fbfbfa;--ink:#1b1b1d;--surface:#fff;--accent:#4f46e5;--muted:#5f6068;--rule:#e6e6e3;--font:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif}
+:root{--ground:#fbfbfa;--ink:#1b1b1d;--surface:#fff;--accent:#4f46e5;--muted:#5f6068;--rule:#e6e6e3;--radius:6px;
+  --font:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif}
+*{box-sizing:border-box}
 body{margin:0;background:var(--ground);color:var(--ink);font:16px/1.5 var(--font)}
-main{max-width:720px;margin:0 auto;padding:32px 16px}
-h1{font-size:24px;font-weight:600;margin:0 0 4px}
-p{margin:0 0 12px;color:var(--muted)}
-table{border-collapse:collapse;width:100%;font-size:14px;margin-top:16px}
-th,td{text-align:left;padding:8px;border-bottom:1px solid var(--rule)}
-th{color:var(--muted);font-weight:600}
-a{color:var(--accent)}
+main{max-width:760px;margin:0 auto;padding:24px 16px 48px}
+.product{font-size:14px;color:var(--muted);margin:0}
+h1{font-size:24px;line-height:1.25;font-weight:600;margin:4px 0 20px}
+h2{font-size:14px;font-weight:600;color:var(--muted);margin:24px 0 8px}
+.boards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
+.boards a{display:block;background:var(--surface);border:1px solid var(--rule);border-radius:var(--radius);padding:12px 14px;color:var(--ink);text-decoration:none;font-weight:600;min-height:44px}
+.boards a:hover,.boards a:focus-visible{border-color:var(--accent);outline:none}
+.boards a span{display:block;font-weight:400;font-size:13px;color:var(--muted)}
+.bar{display:flex;height:10px;border-radius:99px;overflow:hidden;background:var(--rule)}
+.bar i{display:block;height:100%}
+.legend{display:flex;flex-wrap:wrap;gap:4px 16px;margin:8px 0 0;padding:0;list-style:none;font-size:14px;color:var(--muted)}
+.legend b{color:var(--ink);font-weight:600}
+.legend i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+ol.recent{list-style:none;margin:0;padding:0;border-top:1px solid var(--rule)}
+ol.recent li{display:flex;gap:12px;align-items:baseline;padding:8px 2px;border-bottom:1px solid var(--rule);font-size:15px}
+ol.recent .k{color:var(--muted);font-size:13px;min-width:56px}
+ol.recent .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ol.recent .s{color:var(--muted);font-size:13px;white-space:nowrap}
+.empty{color:var(--muted);font-size:14px}
 </style>
 </head>
 <body>
 <main>
+  <p class="product">Projects · {{KEY}}</p>
   <h1>{{NAME}}</h1>
-  <p>This space holds the project's tasks, labels and settings. Open a board to see and change them.</p>
-  <table>
-    <thead><tr><th>Board</th><th>What it shows</th></tr></thead>
-    <tbody>
-      <!-- One row per board: <tr><td><a href="https://spacesheep.dev/@owner/board-slug">Board name</a></td><td>…</td></tr> -->
-      {{BOARDS}}
-    </tbody>
-  </table>
+  <h2>Boards</h2>
+  <nav class="boards" aria-label="Boards">{{BOARDS}}</nav>
+  <h2>Where things stand</h2>
+  <div id="sum"><p class="empty">Loading…</p></div>
+  <h2>Last changed</h2>
+  <div id="recent"></div>
 </main>
+<script>
+(function () {
+  "use strict";
+  var SRC = "{{SOURCE}}";
+  var STATES = [["backlog", "Backlog", "#c8c8c4"], ["todo", "Todo", "#8b8d98"], ["in_progress", "In progress", "#4f46e5"], ["in_review", "In review", "#b45309"], ["done", "Done", "#15803d"]];
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+  if (!SRC || window.parent === window) { $("sum").innerHTML = '<p class="empty">Open this space on Spacesheep to see its tasks.</p>'; return; }
+  var seq = 0, waiting = {};
+  function call(msg) {
+    return new Promise(function (ok) {
+      var id = "pd" + (++seq); waiting[id] = ok; msg.type = "ss-records"; msg.id = id;
+      window.parent.postMessage(msg, "*");
+      setTimeout(function () { if (waiting[id]) { delete waiting[id]; ok({ ok: false }); } }, 20000);
+    });
+  }
+  window.addEventListener("message", function (e) { var d = e.data; if (e.source === window.parent && d && d.type === "ss-records-result" && waiting[d.id]) { var r = waiting[d.id]; delete waiting[d.id]; r(d); } });
+  function draw(tasks) {
+    var live = tasks.filter(function (t) { return t.data.state !== "dropped"; }), n = live.length;
+    var count = {}; live.forEach(function (t) { var s = t.data.state || "backlog"; count[s] = (count[s] || 0) + 1; });
+    $("sum").innerHTML = n ? '<div class="bar" role="img" aria-label="' + STATES.map(function (s) { return (count[s[0]] || 0) + " " + s[1]; }).join(", ") + '">' +
+      STATES.map(function (s) { return count[s[0]] ? '<i style="width:' + (100 * count[s[0]] / n) + "%;background:" + s[2] + '"></i>' : ""; }).join("") + "</div>" +
+      '<ul class="legend">' + STATES.map(function (s) { return '<li><i style="background:' + s[2] + '"></i>' + esc(s[1]) + " <b>" + (count[s[0]] || 0) + "</b></li>"; }).join("") + "</ul>"
+      : '<p class="empty">No tasks yet. Open a board and press N.</p>';
+    var label = {}; STATES.forEach(function (s) { label[s[0]] = s[1]; });
+    var recent = tasks.slice().sort(function (a, b) { return String(b.updated_at || "") < String(a.updated_at || "") ? -1 : 1; }).slice(0, 8);
+    $("recent").innerHTML = recent.length ? '<ol class="recent">' + recent.map(function (t) {
+      return '<li><span class="k">' + esc(t.data.key || "") + '</span><span class="t">' + esc(t.data.title || "Untitled") + '</span><span class="s">' + esc(label[t.data.state] || "Dropped") + "</span></li>";
+    }).join("") + "</ol>" : "";
+  }
+  var busy = false, again = false;
+  function load() {
+    if (busy) { again = true; return; }
+    busy = true;
+    call({ op: "list", source: SRC + "/tasks", limit: 200 }).then(function (r) {
+      busy = false;
+      if (r.ok) draw(r.records || []); else if (!$("sum").querySelector(".bar")) $("sum").innerHTML = '<p class="empty">' + esc(r.message || "The tasks didn't load.") + "</p>";
+      if (again) { again = false; load(); }
+    });
+  }
+  document.addEventListener("ss:records", function (e) { var d = e.detail || {}; if (!d.collection || d.collection === "tasks") load(); });
+  load();
+})();
+</script>
 </body>
 </html>

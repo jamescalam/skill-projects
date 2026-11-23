@@ -26,7 +26,8 @@ button,input,select,textarea{font:inherit;color:inherit}
 .btn.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
 .btn.primary .kbd{color:inherit;border-color:currentColor}
 .kbd{font:12px ui-monospace,monospace;border:1px solid var(--rule);border-radius:4px;padding:0 5px;color:var(--muted)}
-.note{margin:8px 16px 0;min-height:1.5em;font-size:14px;color:var(--muted)}
+.note{margin:8px 16px 0;font-size:14px;color:var(--muted)}
+.note:empty{margin:0}
 .note.bad{color:#b91c1c}
 .wrap{container-type:inline-size}
 .split{display:grid;grid-template-columns:1fr}
@@ -196,6 +197,25 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
   var view = { mode: "board", tab: "todo", showDone: false };
   try { var saved = JSON.parse(localStorage.getItem(VIEW_KEY) || "{}"); if (saved && typeof saved === "object") { if (saved.mode === "list") view.mode = "list"; if (saved.tab) view.tab = String(saved.tab); view.showDone = !!saved.showDone; } } catch (e) {}
   function keepView() { try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch (e) {} }
+  // The last tasks this reader saw, so a board they open again draws at once and then catches up.
+  var CACHE_KEY = "projects-cache:" + SRC;
+  var cacheTimer = 0;
+  function keepCache() {
+    clearTimeout(cacheTimer);
+    cacheTimer = setTimeout(function () {
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify({ t: Object.keys(tasks).map(function (k) { return tasks[k]; }).filter(function (t) { return !t.pending; }), l: Object.keys(labels).map(function (k) { return labels[k]; }), s: settings })); } catch (e) {}
+    }, 300);
+  }
+  function forgetCache() { try { localStorage.removeItem(CACHE_KEY); } catch (e) {} }
+  function fromCache() {
+    try {
+      var c = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
+      if (!c || !Array.isArray(c.t)) return false;
+      c.t.forEach(function (t) { if (t && t.id) tasks[t.id] = t; });
+      (c.l || []).forEach(function (l) { if (l && l.id) labels[l.id] = l; });
+      settings = c.s || null; showProduct(); return true;
+    } catch (e) { return false; }
+  }
   var openId = null, drafting = false, loaded = false;
 
   var $ = function (id) { return document.getElementById(id); };
@@ -254,7 +274,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
     // A div, not a button: browsers don't all let a button be dragged. Enter and Space open it, as a button's would.
     var c = chipsFor(t);
     return '<div role="button" tabindex="0" class="card" draggable="true" data-id="' + esc(t.id) + '"' + (c ? ' aria-describedby="chips-' + esc(t.id) + '"' : "") + (t.id === openId ? ' aria-current="true"' : "") + ">" +
-      (keyOf(t) ? '<span class="ref">' + esc(keyOf(t)) + "</span>" : "") + esc(t.data.title || "Untitled") + c + "</div>";
+      (keyOf(t) ? '<span class="ref">' + esc(keyOf(t)) + "</span>" : t.pending ? '<span class="ref">Adding\u2026</span>' : "") + esc(t.data.title || "Untitled") + c + "</div>";
   }
   function drawTabs() {
     var tabs = $("tabs");
@@ -357,16 +377,32 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
   function openTask(id) { drafting = false; openId = id; draw(); drawPanel(); }
   function closePanel() { openId = null; drafting = false; draw(); drawPanel(); }
 
-  // --- Writing: every change sends the revision it read; a conflict re-reads and lays the change on again once. ---
-  function save(id, change, tries) {
+  // --- Writing: a change shows at once, then goes out in order, one at a time per task, each with the
+  //     revision it read. A conflict re-reads and lays the change on again once; a refusal puts the card back. ---
+  var queued = {}, chain = {};
+  function overlay(rec) { var q = queued[rec.id] || []; if (!q.length) return rec; var d = Object.assign({}, rec.data); q.forEach(function (c) { Object.assign(d, c); }); return Object.assign({}, rec, { data: d }); }
+  function shown(id) { draw(); if (id === openId && !editing()) drawPanel(); keepCache(); }
+  function save(id, change) {
+    if (!tasks[id]) return Promise.resolve(false);
+    (queued[id] = queued[id] || []).push(change);
+    tasks[id] = overlay(Object.assign({}, tasks[id]));
+    shown(id);
+    var run = (chain[id] || Promise.resolve()).then(function () { return send(id, change, 0); });
+    chain[id] = run.then(function () {}, function () {});
+    return run;
+  }
+  function settle(id, rec, ok) {
+    var q = queued[id] || []; q.shift(); if (!q.length) delete queued[id];
+    if (rec) tasks[id] = overlay(rec);
+    shown(id); return ok;
+  }
+  function send(id, change, tries) {
     var t = tasks[id]; if (!t) return Promise.resolve(false);
-    tries = tries || 0;
-    var data = Object.assign({}, t.data, change);
-    return call({ op: "update", source: TASKS, record: id, revision: t.revision, data: data }).then(function (r) {
-      if (r.ok && r.record) { tasks[id] = norm(r.record); note(""); draw(); if (id === openId && !editing()) drawPanel(); return true; }
-      if (r.status === 409 && tries < 1) return getOne(TASKS, id).then(function (fresh) { tasks[id] = fresh; return save(id, change, tries + 1); });
+    return call({ op: "update", source: TASKS, record: id, revision: t.revision, data: Object.assign({}, t.data, change) }).then(function (r) {
+      if (r.ok && r.record) { note(""); return settle(id, norm(r.record), true); }
+      if (r.status === 409 && tries < 1) return getOne(TASKS, id).then(function (fresh) { tasks[id] = overlay(fresh); return send(id, change, tries + 1); });
       note(r.status === 409 ? "Someone changed this task at the same time. It shows their version now: make your change again." : (r.message || "That change didn't save."), true);
-      return getOne(TASKS, id).then(function (fresh) { tasks[id] = fresh; draw(); drawPanel(); return false; }, function () { return false; });
+      return getOne(TASKS, id).then(function (fresh) { return settle(id, fresh, false); }, function () { return settle(id, null, false); });
     });
   }
   function claimKey(tries) {
@@ -383,28 +419,33 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
       throw r;
     });
   }
-  var creating = false;
+  // A new task shows at once with its key to come; its key is claimed, then it is made, one claim at a time.
+  var claims = Promise.resolve(), made = 0;
   function createTask() {
-    if (creating) return;
     var p = $("panel"), data = {};
     p.querySelectorAll("[data-f]").forEach(function (el) { var f = el.getAttribute("data-f"), v = fieldValue(f, el.value); if (v !== "" && !(Array.isArray(v) && !v.length)) data[f] = v; });
     var ls = []; p.querySelectorAll("[data-label]:checked").forEach(function (el) { ls.push(el.getAttribute("data-label")); }); if (ls.length) data.labels = ls;
     if (!data.title) { note("A task needs a title.", true); return; }
     var col = inState(data.state || "todo"), last = col.length ? col[col.length - 1].data.rank : "";
     data.rank = between(last || "", null);
-    creating = true; $("create").disabled = true; $("create").textContent = "Creating…";
-    claimKey().then(function (key) {
+    var tmp = "new-" + (++made), now = new Date().toISOString();
+    tasks[tmp] = { id: tmp, data: Object.assign({ key: "" }, data), revision: 0, author: null, created: now, updated: now, pending: true };
+    drafting = false; openId = null;
+    if (view.mode === "board") view.tab = stateOf(tasks[tmp]);
+    draw(); drawPanel(); flash(tmp);
+    var run = claims.then(function () { return claimKey(); });
+    claims = run.then(function () {}, function () {});
+    run.then(function (key) {
       data.key = key;
       return call({ op: "create", source: TASKS, data: data });
     }).then(function (r) {
       if (!r.ok || !r.record) throw r;
-      var t = norm(r.record); tasks[t.id] = t; drafting = false; openId = t.id;
-      if (view.mode === "board") view.tab = stateOf(t);
-      note(keyOf(t) + " created."); draw(); drawPanel(); flash(t.id);
+      var t = norm(r.record); delete tasks[tmp]; tasks[t.id] = t;
+      note(""); draw(); flash(t.id); keepCache();
     }).catch(function (r) {
-      note((r && r.message) || "The task wasn't created.", true);
-      var b = $("create"); if (b) { b.disabled = false; b.textContent = "Create task"; }
-    }).then(function () { creating = false; });
+      delete tasks[tmp]; draw();
+      note(((r && r.message) || "The task wasn't created.") + " \u201c" + data.title + "\u201d is not on the board.", true);
+    });
   }
   function move(id, state, beforeId) {
     var t = tasks[id]; if (!t) return;
@@ -426,7 +467,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
     if (d.all || !arr(d.ids).length) { load(true); return; }
     arr(d.ids).forEach(function (id) {
       getOne(source, id).then(function (rec) {
-        if (source === TASKS) { tasks[rec.id] = rec; draw(); flash(rec.id); if (rec.id === openId && !editing()) drawPanel(); }
+        if (source === TASKS) { var was = tasks[rec.id]; tasks[rec.id] = overlay(rec); draw(); if (!was || was.revision !== rec.revision) flash(rec.id); if (rec.id === openId && !editing()) drawPanel(); keepCache(); }
         else if (source === LABELS) { labels[rec.id] = rec; draw(); }
         else settings = rec;
       }, function (r) {
@@ -436,15 +477,21 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
   });
 
   // --- Loading ---
+  function showProduct() {
+    if (!settings) return;
+    var name = settings.data.name || "", h1 = document.querySelector(".top h1").textContent.trim();
+    $("product").textContent = "Projects · " + (settings.data.key || "") + (name && name !== h1 ? " · " + name : "");
+  }
   function load(quiet) {
     return Promise.all([listAll(TASKS), listAll(LABELS).catch(function () { return []; }), listAll(SETTINGS).catch(function () { return []; })]).then(function (got) {
       tasks = {}; got[0].forEach(function (t) { tasks[t.id] = t; });
       labels = {}; got[1].forEach(function (l) { labels[l.id] = l; });
       settings = got[2][0] || null;
-      if (settings) $("product").textContent = "Projects · " + (settings.data.key || "") + (settings.data.name ? " · " + settings.data.name : "");
+      showProduct(); keepCache();
       loaded = true; if (!quiet) note(""); draw(); drawPanel();
     }, function (r) {
-      loaded = false;
+      if (loaded && r && (r.status === 0 || r.status >= 500)) { note("Couldn't reach Spacesheep: showing the tasks as they were. Changes will try again.", true); return; }
+      loaded = false; forgetCache();
       $("main").innerHTML = '<div class="gate"><p>' + esc((r && r.message) || "The tasks didn't load.") + '</p><p><button type="button" class="btn" id="retry">Try again</button></p></div>';
       $("retry").onclick = function () { load(); };
     });
@@ -523,14 +570,14 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
   $("tabs").addEventListener("click", function (e) { var b = e.target.closest("[data-tab]"); if (!b) return; view.tab = b.getAttribute("data-tab"); keepView(); draw(); });
   $("main").addEventListener("click", function (e) {
     var f = e.target.closest("[data-fold]"); if (f) { view.showDone = f.getAttribute("data-fold") === "open"; keepView(); draw(); return; }
-    var c = e.target.closest("[data-id]"); if (c) openTask(c.getAttribute("data-id"));
+    var c = e.target.closest("[data-id]"); if (c && !/^new-/.test(c.getAttribute("data-id"))) openTask(c.getAttribute("data-id"));
   });
   $("main").addEventListener("keydown", function (e) {
     var c = e.target.closest('.card[data-id]');
-    if (c && e.target === c && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openTask(c.getAttribute("data-id")); }
+    if (c && e.target === c && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); if (!/^new-/.test(c.getAttribute("data-id"))) openTask(c.getAttribute("data-id")); }
   });
   var dragId = null;
-  $("main").addEventListener("dragstart", function (e) { var c = e.target.closest(".card[data-id]"); if (!c) return; dragId = c.getAttribute("data-id"); e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", dragId); } catch (x) {} });
+  $("main").addEventListener("dragstart", function (e) { var c = e.target.closest(".card[data-id]"); if (!c || /^new-/.test(c.getAttribute("data-id"))) { e.preventDefault(); return; } dragId = c.getAttribute("data-id"); e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", dragId); } catch (x) {} });
   $("main").addEventListener("dragover", function (e) { var col = e.target.closest(".col"); if (!col || !dragId) return; e.preventDefault(); document.querySelectorAll(".col.drop").forEach(function (x) { if (x !== col) x.classList.remove("drop"); }); col.classList.add("drop"); });
   $("main").addEventListener("dragleave", function (e) { var col = e.target.closest(".col"); if (col && !col.contains(e.relatedTarget)) col.classList.remove("drop"); });
   $("main").addEventListener("drop", function (e) {
@@ -541,7 +588,8 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
   $("main").addEventListener("dragend", function () { dragId = null; document.querySelectorAll(".col.drop").forEach(function (x) { x.classList.remove("drop"); }); });
 
   if (!framed) { $("main").innerHTML = '<div class="gate"><p>Open this board on Spacesheep to see its tasks.</p></div>'; return; }
-  load();
+  if (fromCache()) { loaded = true; draw(); }
+  load(true);
 })();
 </script>
 </body>
