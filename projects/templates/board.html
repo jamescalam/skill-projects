@@ -45,8 +45,9 @@ button,input,select,textarea{font:inherit;color:inherit}
 .card.fresh{animation:fresh 1.2s ease-out}
 @keyframes fresh{from{box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 35%,transparent)}to{box-shadow:none}}
 .ref{font-size:13px;color:var(--muted);display:block}
-.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;font-size:13px;color:var(--muted)}
-.chip{border:1px solid var(--rule);border-radius:99px;padding:1px 8px;display:inline-flex;gap:4px;align-items:center;white-space:nowrap}
+.chips{display:flex;flex-wrap:nowrap;overflow:hidden;contain:inline-size;mask-image:linear-gradient(to right,#000 calc(100% - 20px),transparent);gap:6px;margin-top:6px;font-size:13px;color:var(--muted)}
+.chip{border:1px solid var(--rule);border-radius:99px;padding:1px 8px;display:inline-flex;gap:4px;align-items:center;white-space:nowrap;flex:none}
+.chips>.dot{flex:none;align-self:center}
 .chip.warn{color:#b45309;border-color:#f3d9b1}
 .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
 .av{width:16px;height:16px;border-radius:50%;background:var(--rule);color:var(--ink);font-size:11px;display:inline-grid;place-items:center}
@@ -87,6 +88,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
 .wrap.open .tabs{display:none}
 .col h2{display:none}
 @media (pointer:coarse){.kbd{display:none}}
+@media (max-width:639px){#cmd-btn{display:none}}
 .gate{margin:48px auto;max-width:520px;padding:16px;text-align:center;color:var(--muted)}
 @container (min-width:900px){
   .tabs{display:none}
@@ -238,17 +240,21 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
 
   // --- Drawing ---
   function chipsFor(t) {
-    var h = arr(t.data.assignees).slice(0, 3).map(function (a) { a = handle(a); return '<span class="chip"><span class="av">' + esc(a.slice(1, 2).toUpperCase()) + "</span>" + esc(a.slice(1)) + "</span>"; }).join("");
+    var who = arr(t.data.assignees).map(handle).filter(Boolean), h = "";
+    if (who.length) h = '<span class="chip"><span class="av">' + esc(who[0].slice(1, 2).toUpperCase()) + "</span>" + esc(who[0].slice(1)) + (who.length > 1 ? " +" + (who.length - 1) : "") + "</span>";
     var p = t.data.priority; if (p && p !== "none") h += '<span class="chip">' + esc((PRIORITIES.filter(function (x) { return x[0] === p; })[0] || [p, p])[1]) + "</span>";
     var due = dueText(t.data.due); if (due) h += '<span class="chip' + (overdue(t) ? " warn" : "") + '">' + esc(due) + "</span>";
-    arr(t.data.labels).forEach(function (id) { var l = labels[id]; if (l) h += '<span class="chip"><span class="dot" style="background:' + goodColor(l.data.color) + '"></span>' + esc(l.data.name) + "</span>"; });
-    var ob = openBlockers(t); if (ob.length) h += '<span class="chip warn">Blocked by ' + esc(ob.slice(0, 2).join(", ")) + (ob.length > 2 ? " +" + (ob.length - 2) : "") + "</span>";
-    return h ? '<span class="chips">' + h + "</span>" : "";
+    // One line: who, priority, due, then a dot per label (its name is spoken, and shown on hover).
+    // What doesn't fit is cut off, never wrapped. Only an overdue date is amber.
+    arr(t.data.labels).forEach(function (id) { var l = labels[id]; if (l) h += '<span class="dot" role="img" aria-label="' + esc(l.data.name) + '" title="' + esc(l.data.name) + '" style="background:' + goodColor(l.data.color) + '"></span>'; });
+    var ob = openBlockers(t); if (ob.length) h += '<span class="chip">Blocked by ' + esc(ob.slice(0, 2).join(", ")) + (ob.length > 2 ? " +" + (ob.length - 2) : "") + "</span>";
+    return h ? '<span class="chips" id="chips-' + esc(t.id) + '">' + h + "</span>" : "";
   }
   function cardHtml(t) {
     // A div, not a button: browsers don't all let a button be dragged. Enter and Space open it, as a button's would.
-    return '<div role="button" tabindex="0" class="card" draggable="true" data-id="' + esc(t.id) + '"' + (t.id === openId ? ' aria-current="true"' : "") + ">" +
-      (keyOf(t) ? '<span class="ref">' + esc(keyOf(t)) + "</span>" : "") + esc(t.data.title || "Untitled") + chipsFor(t) + "</div>";
+    var c = chipsFor(t);
+    return '<div role="button" tabindex="0" class="card" draggable="true" data-id="' + esc(t.id) + '"' + (c ? ' aria-describedby="chips-' + esc(t.id) + '"' : "") + (t.id === openId ? ' aria-current="true"' : "") + ">" +
+      (keyOf(t) ? '<span class="ref">' + esc(keyOf(t)) + "</span>" : "") + esc(t.data.title || "Untitled") + c + "</div>";
   }
   function drawTabs() {
     var tabs = $("tabs");
