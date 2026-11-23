@@ -291,7 +291,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
       var body;
       if (s[0] === "done" && !view.showDone) body = list.length ? '<button type="button" class="card fold" data-fold="open">' + list.length + " done · Show</button>" : '<p class="empty">Nothing done yet.</p>';
       else {
-        body = list.map(cardHtml).join("") || '<p class="empty">No tasks.</p>';
+        body = list.map(cardHtml).join("") || (s[0] === "todo" && !Object.keys(tasks).length ? '<p class="empty">No tasks yet. Press N, or New task, to add the first.</p>' : '<p class="empty">No tasks.</p>');
         if (s[0] === "done" && list.length) body += '<button type="button" class="card fold" data-fold="close">Fold done tasks</button>';
       }
       return '<section class="col" data-state="' + s[0] + '"' + hide + '><h2>' + esc(s[1]) + ' <span class="count">' + list.length + "</span></h2>" + body + "</section>";

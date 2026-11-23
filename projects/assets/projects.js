@@ -204,10 +204,15 @@ async function newProject() {
     return spaces;
   });
   const labelsP = dbP.then((db) => all(labels.map((l) => write(() => ss.call("create_record", { space_id: db.id, collection: "labels", data: l })).then((r) => r.record))));
-  const tasksP = Promise.all([dbP, labelsP]).then(([db, labelRecs]) => {
+  // A task with no labels goes as soon as the database exists; one with labels once they do.
+  const make = (db, d) => write(() => ss.call("create_record", { space_id: db.id, collection: "tasks", data: d }));
+  const labelled = tasks.map((t) => Array.isArray(t.labels) && t.labels.length > 0);
+  const plainP = dbP.then((db) => all(taskRecords(tasks, key, 1, {}).filter((d, i) => !labelled[i]).map((d) => make(db, d))));
+  const labelledP = Promise.all([dbP, labelsP]).then(([db, labelRecs]) => {
     const labelIds = {}; labelRecs.forEach((r) => { labelIds[String(r.data.name).toLowerCase()] = r.id; });
-    return all(taskRecords(tasks, key, 1, labelIds).map((d) => write(() => ss.call("create_record", { space_id: db.id, collection: "tasks", data: d })))).then((x) => { log(`${labelRecs.length} label(s), ${x.length} task(s)`); return x; });
+    return all(taskRecords(tasks, key, 1, labelIds).filter((d, i) => labelled[i]).map((d) => make(db, d)));
   });
+  const tasksP = Promise.all([plainP, labelledP]).then(([a, b]) => log(`${labels.length} label(s), ${a.length + b.length} task(s)`));
   const restP = Promise.all([dbP, boardsP]).then(([db, spaces]) => all([
     write(() => ss.call("create_record", { space_id: db.id, collection: "settings", data: { key, name, next: tasks.length + 1, home: db.url, boards: spaces.map((sp, i) => ({ name: boards[i], url: sp.url })) } })),
     all(["tasks", "labels", "settings"].map((c) => ss.call("update_collection", { space_id: db.id, collection: c, writers_ids: spaces.map((sp) => sp.id) }))),
