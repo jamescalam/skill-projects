@@ -15,7 +15,7 @@
 //
 // tasks.json is a list of tasks (or {"tasks": [...]}) in the task shape (references/task-shape.md), with
 // two conveniences: `labels` may name labels ("Design") as well as give record ids, and `blocked_by` /
-// `parent` may give a task's place in this list (1 = the first) as well as a key. Leave `key` and
+// `parent` may name another task in this list by its title (or its place, 1 = the first) as well as by key. Leave `key` and
 // `rank` out: they are given here.
 
 "use strict";
@@ -131,7 +131,14 @@ function parseLabels(v) {
 }
 // The tasks as records: keys from `first`, ranks in order per column, labels and links resolved.
 function taskRecords(tasks, key, first, labelIds, lastRank = {}) {
-  const keyAt = (ref) => (typeof ref === "number" || /^\d+$/.test(String(ref)) ? (tasks[Number(ref) - 1] ? `${key}-${first + Number(ref) - 1}` : null) : String(ref).toUpperCase());
+  // Another task in this list by its title (what a writer remembers), or by its place (1 = the first); else a key.
+  const byTitle = new Map(tasks.map((t, i) => [String(t.title).trim().toLowerCase(), i]));
+  const keyAt = (ref) => {
+    const r = String(ref).trim(), i = byTitle.get(r.toLowerCase());
+    if (i !== undefined) return `${key}-${first + i}`;
+    if (/^\d+$/.test(r)) return tasks[Number(r) - 1] ? `${key}-${first + Number(r) - 1}` : null;
+    return /^[A-Za-z][A-Za-z0-9]{2,4}-\d+$/.test(r) ? r.toUpperCase() : null;
+  };
   return tasks.map((t, i) => {
     const d = { ...t, key: `${key}-${first + i}`, title: String(t.title).trim().slice(0, 200), state: t.state || "todo" };
     delete d.rank;

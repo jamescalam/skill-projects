@@ -19,10 +19,23 @@ the rest is you.
 each board allowed to write, all shared alike. It talks to Spacesheep through the spacesheep CLI (downloaded by npx
 if it isn't installed) and prints the links as JSON.
 
-1. **The tasks, if the ask names any** (or implies them: "a launch plan", "the steps to …"). One Write call: a
-   `tasks.json` list in the task shape, without `key` or `rank`. Two shortcuts: `labels` may name labels
-   (`["Design"]`), and `blocked_by` / `parent` may give another task's place in the list (`[2]`). Keep titles to a
-   line; put the rest in `body`. No tasks asked for: skip this, the board starts empty.
+1. **The tasks, if the ask names any** (or implies them: "a launch plan", "the steps to …"). One Write call, never
+   edited after: a `tasks.json` list. You need no other file for it; each task is an object of these, all but
+   `title` optional:
+
+   | Field | Value |
+   |---|---|
+   | `title` | one line |
+   | `body` | Markdown: what done means, and anything else |
+   | `state` | `backlog`, `todo` (the default), `in_progress`, `in_review`, `done` |
+   | `priority` | `urgent`, `high`, `medium`, `low`, `none` |
+   | `labels` | label names from `--labels`: `["Design"]` |
+   | `assignees`, `reviewers` | @handles of people or agents |
+   | `due` | `YYYY-MM-DD` |
+   | `blocked_by`, `parent` | other tasks in this list, by their exact title |
+   | `done_when`, `links` | the evidence that closes it; URLs |
+
+   No tasks asked for: skip this, the board starts empty.
 2. **One command:**
 
    ```
@@ -34,7 +47,8 @@ if it isn't installed) and prints the links as JSON.
    - `--boards` names each board: one `Board` unless the person asks for more ("a board for design").
    - `--people` and `--visibility` share the database and every board alike: a reader needs both to see tasks.
      Leave them out and everything is private to the person.
-   - `--labels` takes names, each with an optional `#rrggbb` (references/task-shape.md has the palette).
+   - `--labels` takes names, each with an optional `#rrggbb`; without one, each takes the next of the skill's
+     palette.
 3. **Reply with the board's link first**, then one line on what's in it ("6 tasks, 4 labels, key CLA"). Name the
    database space as the project's home: it lists the boards and where things stand, and every board links to it.
 
