@@ -45,8 +45,8 @@ button,input,select,textarea{font:inherit;color:inherit}
 .card.fresh{animation:fresh 1.2s ease-out}
 @keyframes fresh{from{box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 35%,transparent)}to{box-shadow:none}}
 .ref{font-size:13px;color:var(--muted);display:block}
-.chips{display:flex;flex-wrap:nowrap;overflow:hidden;contain:inline-size;mask-image:linear-gradient(to right,#000 calc(100% - 20px),transparent);gap:6px;margin-top:6px;font-size:13px;color:var(--muted)}
-.chip{border:1px solid var(--rule);border-radius:99px;padding:1px 8px;display:inline-flex;gap:4px;align-items:center;white-space:nowrap;flex:none}
+.chips{display:flex;flex-wrap:wrap;height:22px;overflow:hidden;contain:inline-size;gap:6px;margin-top:6px;font-size:13px;line-height:18px;color:var(--muted)}
+.chip{border:1px solid var(--rule);border-radius:99px;padding:1px 8px;display:inline-flex;gap:4px;align-items:center;white-space:nowrap;flex:none;max-width:100%;overflow:hidden}
 .chips>.dot{flex:none;align-self:center}
 .chip.warn{color:#b45309;border-color:#f3d9b1}
 .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
@@ -245,7 +245,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
     var p = t.data.priority; if (p && p !== "none") h += '<span class="chip">' + esc((PRIORITIES.filter(function (x) { return x[0] === p; })[0] || [p, p])[1]) + "</span>";
     var due = dueText(t.data.due); if (due) h += '<span class="chip' + (overdue(t) ? " warn" : "") + '">' + esc(due) + "</span>";
     // One line: who, priority, due, then a dot per label (its name is spoken, and shown on hover).
-    // What doesn't fit is cut off, never wrapped. Only an overdue date is amber.
+    // A chip that doesn't fit whole goes to a second row the card never shows. Only an overdue date is amber.
     arr(t.data.labels).forEach(function (id) { var l = labels[id]; if (l) h += '<span class="dot" role="img" aria-label="' + esc(l.data.name) + '" title="' + esc(l.data.name) + '" style="background:' + goodColor(l.data.color) + '"></span>'; });
     var ob = openBlockers(t); if (ob.length) h += '<span class="chip">Blocked by ' + esc(ob.slice(0, 2).join(", ")) + (ob.length > 2 ? " +" + (ob.length - 2) : "") + "</span>";
     return h ? '<span class="chips" id="chips-' + esc(t.id) + '">' + h + "</span>" : "";
