@@ -42,6 +42,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .count{color:var(--muted);font-weight:400}
 .col[data-hide]{display:none}
 .col.drop{outline:2px dashed var(--accent);outline-offset:4px;border-radius:var(--radius)}
+.card.land{box-shadow:0 -6px 0 -3px var(--accent)}
 .card{background:var(--surface);user-select:none;border:1px solid var(--rule);border-radius:var(--radius);padding:10px 12px;margin-bottom:8px;width:100%;text-align:left;cursor:pointer;min-height:44px;display:block;line-height:1.4}
 .card[aria-current="true"]{border-color:var(--accent)}
 .card:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -588,14 +589,20 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
   });
   var dragId = null;
   $("main").addEventListener("dragstart", function (e) { var c = e.target.closest(".card[data-id]"); if (!c || /^new-/.test(c.getAttribute("data-id"))) { e.preventDefault(); return; } dragId = c.getAttribute("data-id"); e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", dragId); } catch (x) {} });
-  $("main").addEventListener("dragover", function (e) { var col = e.target.closest(".col"); if (!col || !dragId) return; e.preventDefault(); document.querySelectorAll(".col.drop").forEach(function (x) { if (x !== col) x.classList.remove("drop"); }); col.classList.add("drop"); });
-  $("main").addEventListener("dragleave", function (e) { var col = e.target.closest(".col"); if (col && !col.contains(e.relatedTarget)) col.classList.remove("drop"); });
-  $("main").addEventListener("drop", function (e) {
-    var col = e.target.closest(".col"); if (!col || !dragId) return; e.preventDefault(); col.classList.remove("drop");
-    var before = null; col.querySelectorAll(".card[data-id]").forEach(function (c) { if (before) return; var r = c.getBoundingClientRect(); if (e.clientY < r.top + r.height / 2 && c.getAttribute("data-id") !== dragId) before = c.getAttribute("data-id"); });
-    var id = dragId; dragId = null; move(id, col.getAttribute("data-state"), before);
+  // Where a dropped card lands: before the first card whose middle is below the pointer, else at the end.
+  function landing(col, y) { var before = null; col.querySelectorAll(".card[data-id]").forEach(function (c) { if (before) return; var r = c.getBoundingClientRect(); if (y < r.top + r.height / 2 && c.getAttribute("data-id") !== dragId) before = c; }); return before; }
+  function clearMarks() { document.querySelectorAll(".col.drop").forEach(function (x) { x.classList.remove("drop"); }); document.querySelectorAll(".card.land").forEach(function (x) { x.classList.remove("land"); }); }
+  $("main").addEventListener("dragover", function (e) {
+    var col = e.target.closest(".col"); if (!col || !dragId) return; e.preventDefault();
+    var at = landing(col, e.clientY);
+    if (!col.classList.contains("drop") || !(at ? at.classList.contains("land") : !col.querySelector(".card.land"))) { clearMarks(); col.classList.add("drop"); if (at) at.classList.add("land"); }
   });
-  $("main").addEventListener("dragend", function () { dragId = null; document.querySelectorAll(".col.drop").forEach(function (x) { x.classList.remove("drop"); }); });
+  $("main").addEventListener("dragleave", function (e) { var col = e.target.closest(".col"); if (col && !col.contains(e.relatedTarget)) { col.classList.remove("drop"); col.querySelectorAll(".card.land").forEach(function (x) { x.classList.remove("land"); }); } });
+  $("main").addEventListener("drop", function (e) {
+    var col = e.target.closest(".col"); if (!col || !dragId) return; e.preventDefault();
+    var at = landing(col, e.clientY), id = dragId; clearMarks(); dragId = null; move(id, col.getAttribute("data-state"), at ? at.getAttribute("data-id") : null);
+  });
+  $("main").addEventListener("dragend", function () { dragId = null; clearMarks(); });
 
   if (!framed) { $("main").innerHTML = '<div class="gate"><p>Open this board on Spacesheep to see its tasks.</p></div>'; return; }
   if (fromCache()) { loaded = true; draw(); }
