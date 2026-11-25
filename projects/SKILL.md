@@ -47,6 +47,9 @@ if it isn't installed) and prints the links as JSON.
    - `--boards` names each board: one `Board` unless the person asks for more ("a board for design").
    - `--people` and `--visibility` share the database and every board alike: a reader needs both to see tasks.
      Leave them out and everything is private to the person.
+   - `--show public` (or `signed_in`) opens the boards alone to everyone, read only: they see the tasks and nothing to
+     edit, and the database stays private. Use it for a project shown in public, never `--visibility public`, which lets
+     anyone signed in change tasks. Nothing in a task is hidden there: keep private words out of titles and bodies.
    - `--labels` takes names, each with an optional `#rrggbb`; without one, each takes the next of the skill's
      palette.
 3. **Reply with the board's link first**, then one line on what's in it ("6 tasks, 4 labels, key CLA"). Name the

@@ -6,6 +6,8 @@ Each release is a heading with its tag. The release workflow uses the words unde
 
 - Epics: a task that others name as their parent. The board has an Epics view with each one's progress, a filter by epic,
   and an Epic field on a task. An epic's panel lists its tasks.
+- A public board: `--show public` opens the boards to everyone, read only, while the database stays private. A visitor sees
+  the tasks and nothing to edit; a property with nothing in it isn't shown.
 - The database page counts every task (it stopped at 200), and leaves epics out of its counts.
 
 ## v1.0.0

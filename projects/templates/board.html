@@ -113,6 +113,11 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
 .kids .n{color:var(--muted);white-space:nowrap}
 @media (pointer:coarse){.kbd{display:none}}
 @media (max-width:639px){#cmd-btn{display:none}}
+.ro #new-btn{display:none}
+.ro .card{cursor:pointer}
+.ro .panel [data-f]:disabled{opacity:1;color:inherit;-webkit-text-fill-color:currentColor;border-color:transparent;background:none;appearance:none;cursor:default;resize:none}
+.ro .panel ::placeholder{color:transparent}
+.ro .panel .labels label:not(:has(:checked)),.ro .panel .labels input{display:none}
 .gate{margin:48px auto;max-width:520px;padding:16px;text-align:center;color:var(--muted)}
 @container (min-width:900px){
   .tabs{display:none}
@@ -208,6 +213,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
       if (after) q.after = after;
       return read(q).then(function (r) {
         if (!r.ok) throw r;
+        if (source === TASKS) setReadOnly(!!r.read_only);
         (r.records || []).forEach(function (x) { out.push(norm(x)); });
         var next = r.page && r.page.next;
         return next && out.length < 2000 ? page(next) : out;
@@ -222,7 +228,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
   // --- State ---
   var tasks = {}, labels = {}, settings = null;
   var view = { mode: "board", tab: "todo", showDone: false, epic: "" };
-  try { var saved = JSON.parse(localStorage.getItem(VIEW_KEY) || "{}"); if (saved && typeof saved === "object") { if (saved.mode === "list" || saved.mode === "epics") view.mode = saved.mode; view.epic = String(saved.epic || ""); if (saved.tab) view.tab = String(saved.tab); view.showDone = !!saved.showDone; } } catch (e) {}
+  try { var saved = JSON.parse(localStorage.getItem(VIEW_KEY) || "{}"); if (saved && typeof saved === "object") { if (saved.mode === "list" || saved.mode === "epics") view.mode = saved.mode; view.epic = String(saved.epic || ""); if (saved.tab) view.tab = String(saved.tab); view.showDone = !!saved.showDone; view.ro = !!saved.ro; } } catch (e) {}
   function keepView() { try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch (e) {} }
   // The last tasks this reader saw, so a board they open again draws at once and then catches up.
   var CACHE_KEY = "projects-cache:" + SRC;
@@ -244,6 +250,16 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
     } catch (e) { return false; }
   }
   var openId = null, drafting = false, loaded = false;
+  // A board shown to everyone answers those who can't open the project read only: the same board with nothing to edit,
+  // read again when they come back to it, since only people on the project hear changes live when signed out.
+  var ro = false;
+  function setReadOnly(on) {
+    if (ro === on) return;
+    ro = view.ro = on; document.body.classList.toggle("ro", on); keepView();
+    if (on && drafting) { drafting = false; drawPanel(); }
+  }
+  if (view.ro) setReadOnly(true);
+  document.addEventListener("visibilitychange", function () { if (ro && !document.hidden) load(true); });
 
   var $ = function (id) { return document.getElementById(id); };
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
@@ -313,7 +329,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
   function cardHtml(t) {
     // A div, not a button: browsers don't all let a button be dragged. Enter and Space open it, as a button's would.
     var c = chipsFor(t);
-    return '<div role="button" tabindex="0" class="card" draggable="true" data-id="' + esc(t.id) + '"' + (c ? ' aria-describedby="chips-' + esc(t.id) + '"' : "") + (t.id === openId ? ' aria-current="true"' : "") + ">" +
+    return '<div role="button" tabindex="0" class="card" draggable="' + !ro + '" data-id="' + esc(t.id) + '"' + (c ? ' aria-describedby="chips-' + esc(t.id) + '"' : "") + (t.id === openId ? ' aria-current="true"' : "") + ">" +
       (keyOf(t) ? '<span class="ref">' + esc(keyOf(t)) + "</span>" : t.pending ? '<span class="ref">Adding\u2026</span>' : "") + esc(t.data.title || "Untitled") + (epicOf(t) && keyOf(epicOf(t)) !== view.epic ? '<span class="in">' + esc(epicOf(t).data.title) + "</span>" : "") + c + "</div>";
   }
   function drawTabs() {
@@ -429,6 +445,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
       fit(); ti.addEventListener("input", fit);
       ti.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); if (drafting) createTask(); else ti.blur(); } });
     }
+    if (ro) showOnly(p);
     $("close").onclick = closePanel;
     p.querySelectorAll("[data-kid]").forEach(function (b) { b.onclick = function () { openTask(b.getAttribute("data-kid")); }; });
     if (drafting) { $("create").onclick = createTask; setTimeout(function () { var i = p.querySelector('[data-f="title"]'); if (i) i.focus(); }, 0); return; }
@@ -442,6 +459,16 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
         save(openId, { labels: cur.slice(0, 10) });
       });
     });
+  }
+  // Read only: what the task holds, as text; a property with nothing in it isn't shown.
+  function showOnly(p) {
+    p.querySelectorAll("[data-f],[data-label]").forEach(function (el) { el.disabled = true; });
+    p.querySelectorAll(".props dd").forEach(function (dd) {
+      var el = dd.querySelector("[data-f]"), has = el ? el.value && el.value !== "none" : dd.querySelector(":checked") || !dd.querySelector(".labels");
+      if (!has) { dd.hidden = true; dd.previousElementSibling.hidden = true; }
+    });
+    var b = p.querySelector('[data-f="body"]');
+    if (b.value) b.style.height = b.scrollHeight + "px"; else { b.hidden = true; b.previousElementSibling.hidden = true; }
   }
   function parseList(name, v) {
     var parts = String(v || "").split(/[\s,]+/).filter(Boolean);
@@ -566,7 +593,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
     var name = settings.data.name || "", h1 = document.querySelector(".top h1").textContent.trim();
     var text = "Projects · " + (settings.data.key || "") + (name && name !== h1 ? " · " + name : ""), home = String(settings.data.home || "");
     // The project's home (the database space), when the settings record names one on Spacesheep's own address.
-    $("product").innerHTML = /^https?:\/\/[^/]+\/@[a-z0-9-]+\/[a-z0-9-]+$/.test(home) ? '<a href="' + esc(home) + '">' + esc(text) + "</a>" : esc(text);
+    $("product").innerHTML = !ro && /^https?:\/\/[^/]+\/@[a-z0-9-]+\/[a-z0-9-]+$/.test(home) ? '<a href="' + esc(home) + '">' + esc(text) + "</a>" : esc(text);
   }
   function load(quiet) {
     return Promise.all([listAll(TASKS), listAll(LABELS).catch(function () { return []; }), listAll(SETTINGS).catch(function () { return []; })]).then(function (got) {
@@ -585,21 +612,21 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
 
   // --- Command menu and keys. C, / and Escape belong to Spacesheep, so the board never takes them. ---
   var actions = [
-    { label: "New task", key: "N", run: newTask },
+    { label: "New task", key: "N", edit: true, run: newTask },
     { label: "Board or list", key: "⌘B", run: toggleView },
-    { label: "Change status", key: "S", task: true, run: function () { focusField("state"); } },
-    { label: "Assign", key: "A", task: true, run: function () { focusField("assignees"); } },
-    { label: "Priority", key: "P", task: true, run: function () { focusField("priority"); } },
-    { label: "Labels", key: "L", task: true, run: function () { var el = $("panel").querySelector("[data-label]"); if (el) el.focus(); } },
-    { label: "Due date", key: "D", task: true, run: function () { focusField("due"); } },
-    { label: "Epic", key: "E", task: true, run: function () { focusField("parent"); } },
+    { label: "Change status", key: "S", task: true, edit: true, run: function () { focusField("state"); } },
+    { label: "Assign", key: "A", task: true, edit: true, run: function () { focusField("assignees"); } },
+    { label: "Priority", key: "P", task: true, edit: true, run: function () { focusField("priority"); } },
+    { label: "Labels", key: "L", task: true, edit: true, run: function () { var el = $("panel").querySelector("[data-label]"); if (el) el.focus(); } },
+    { label: "Due date", key: "D", task: true, edit: true, run: function () { focusField("due"); } },
+    { label: "Epic", key: "E", task: true, edit: true, run: function () { focusField("parent"); } },
     { label: "Next task", key: "J", run: function () { step(1); } },
     { label: "Previous task", key: "K", run: function () { step(-1); } },
     { label: "Show or fold done tasks", key: "⇧D", run: function () { view.showDone = !view.showDone; keepView(); draw(); } },
     { label: "Epics", key: "⇧E", run: function () { setMode("epics"); } },
     { label: "Close the task", key: "×", task: true, run: closePanel }
   ];
-  function newTask() { openId = null; drafting = true; draw(); drawPanel(); }
+  function newTask() { if (ro) return; openId = null; drafting = true; draw(); drawPanel(); }
   function setMode(m) { view.mode = m; keepView(); draw(); }
   function toggleView() { setMode(view.mode === "board" ? "list" : "board"); }
   function pickEpic(k) { view.epic = k; if (view.mode === "epics") view.mode = "board"; keepView(); draw(); }
@@ -616,7 +643,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
   var cmdSel = 0;
   function cmdItems() {
     var q = $("cmd-q").value.trim().toLowerCase();
-    return actions.filter(function (a) { return !q || a.label.toLowerCase().indexOf(q) >= 0; });
+    return actions.filter(function (a) { return !(ro && a.edit) && (!q || a.label.toLowerCase().indexOf(q) >= 0); });
   }
   function drawCmd() {
     var items = cmdItems(); if (cmdSel >= items.length) cmdSel = Math.max(0, items.length - 1);
@@ -645,7 +672,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
     if (a && (/INPUT|TEXTAREA|SELECT/.test(a.tagName) || a.isContentEditable)) return;
     var hit = null;
     var want = (e.shiftKey ? "⇧" : "") + k.toUpperCase();
-    actions.forEach(function (x) { if (x.key === want && (!x.task || openId)) hit = x; });
+    actions.forEach(function (x) { if (x.key === want && (!x.task || openId) && !(ro && x.edit)) hit = x; });
     if (hit) { e.preventDefault(); runCmd(hit); }
   });
 
@@ -667,7 +694,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
     if (c && e.target === c && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); if (!/^new-/.test(c.getAttribute("data-id"))) openTask(c.getAttribute("data-id")); }
   });
   var dragId = null;
-  $("main").addEventListener("dragstart", function (e) { var c = e.target.closest(".card[data-id]"); if (!c || /^new-/.test(c.getAttribute("data-id"))) { e.preventDefault(); return; } dragId = c.getAttribute("data-id"); e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", dragId); } catch (x) {} });
+  $("main").addEventListener("dragstart", function (e) { var c = e.target.closest(".card[data-id]"); if (!c || ro || /^new-/.test(c.getAttribute("data-id"))) { e.preventDefault(); return; } dragId = c.getAttribute("data-id"); e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", dragId); } catch (x) {} });
   // Where a dropped card lands: before the first card whose middle is below the pointer, else at the end.
   function landing(col, y) { var before = null; col.querySelectorAll(".card[data-id]").forEach(function (c) { if (before) return; var r = c.getBoundingClientRect(); if (y < r.top + r.height / 2 && c.getAttribute("data-id") !== dragId) before = c; }); return before; }
   function clearMarks() { document.querySelectorAll(".col.drop").forEach(function (x) { x.classList.remove("drop"); }); document.querySelectorAll(".card.land").forEach(function (x) { x.classList.remove("land"); }); }
