@@ -2,6 +2,12 @@
 
 Each release is a heading with its tag. The release workflow uses the words under it as the release's notes.
 
+## v1.1.0
+
+- Epics: a task that others name as their parent. The board has an Epics view with each one's progress, a filter by epic,
+  and an Epic field on a task. An epic's panel lists its tasks.
+- The database page counts every task (it stopped at 200), and leaves epics out of its counts.
+
 ## v1.0.0
 
 - The first release.

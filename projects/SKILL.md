@@ -55,8 +55,13 @@ if it isn't installed) and prints the links as JSON.
 Without this skill's folder: `npx -y spacesheep@latest skills get @spacesheep/projects -o <an empty folder>`, then the
 same command from that folder.
 
-Spacesheep takes 120 record writes a minute from one person, and 200 records per person in a collection (2,000 in
-all), so a bigger import waits out the minute by itself, and past 200 tasks needs a second person's account.
+Spacesheep takes 120 record writes a minute from one person, so a bigger import waits out the minute by itself (300
+tasks take about three minutes). A project holds at most 2,000 tasks, and anyone but the database's owner makes at most
+200 of them.
+
+**Epics:** a task that others name as their `parent` is an epic. Put it in the list before its tasks and give it a one-line
+`body` saying what it's for. The board shows epics in their own view with their progress, and filters by one; they have no
+card in the columns. Use them once a project has more than about 20 tasks.
 
 **Add tasks later** the same way: `node <folder>/assets/projects.js add <database @owner/slug or link> --tasks
 more.json`. It takes their keys in one guarded claim, so two agents adding at once never share a key.
@@ -92,7 +97,7 @@ spaces an hour, and a project is one space plus one per board.
 ## The board
 
 Kanban columns with counts (Backlog, Todo, In progress, In review, Done folded to one line), a task opened in a panel
-beside the board, Board and List (⌘B), a command menu showing every key (⌘K), and N for a new task. A change shows on
+beside the board, Board and List (⌘B), Epics (⇧E) and a filter by epic once any task has a `parent`, a command menu showing every key (⌘K), and N for a new task. A change shows on
 the board that made it at once, and on every other open board within a second. A board opened before draws at once
 from what it last saw, then catches up. On a phone it shows one column at a time, under status tabs.
 

@@ -51,13 +51,13 @@ ol.recent .s{color:var(--muted);font-size:13px;white-space:nowrap}
   var STATES = [["backlog", "Backlog", "#c8c8c4"], ["todo", "Todo", "#8b8d98"], ["in_progress", "In progress", "#4f46e5"], ["in_review", "In review", "#b45309"], ["done", "Done", "#15803d"]];
   var $ = function (id) { return document.getElementById(id); };
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
-  function get(c) { return fetch("api/records/" + c + "?limit=200", { credentials: "include" }).then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); }); }
+  function get(c, cursor, had) { return fetch("api/records/" + c + "?limit=500" + (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""), { credentials: "include" }).then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); }).then(function (j) { var all = (had || []).concat(j.records || []); return j.next_cursor ? get(c, j.next_cursor, all) : { records: all }; }); }
   function drawBoards(set) {
     var b = set && Array.isArray(set.boards) ? set.boards : [];
     $("boards").innerHTML = b.length ? b.map(function (x) { return /^https:\/\//.test(String(x.url)) || /^http:\/\/localhost/.test(String(x.url)) ? '<a href="' + esc(x.url) + '">' + esc(x.name) + "</a>" : ""; }).join("") : '<p class="empty">No boards yet.</p>';
   }
   function draw(tasks) {
-    var live = tasks.filter(function (t) { return t.data.state !== "dropped"; }), n = live.length;
+    var parents = {}, live = (tasks.forEach(function (t) { if (t.data.parent) parents[t.data.parent] = 1; }), tasks.filter(function (t) { return t.data.state !== "dropped" && !parents[t.data.key]; })), n = live.length;
     var count = {}; live.forEach(function (t) { var s = t.data.state || "backlog"; count[s] = (count[s] || 0) + 1; });
     $("sum").innerHTML = n ? '<div class="bar" role="img" aria-label="' + STATES.map(function (s) { return (count[s[0]] || 0) + " " + s[1]; }).join(", ") + '">' +
       STATES.map(function (s) { return count[s[0]] ? '<i style="width:' + (100 * count[s[0]] / n) + "%;background:" + s[2] + '"></i>' : ""; }).join("") + "</div>" +

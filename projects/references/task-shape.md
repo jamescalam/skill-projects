@@ -22,7 +22,7 @@ protobuf messages.
 | `labels` | label record ids, at most 10 | Its labels. An id with no label record is hidden |
 | `due` | date, `YYYY-MM-DD` | When it's due |
 | `blocked_by` | task keys, at most 20 | What must finish first. A board shows the other side as "Blocks" |
-| `parent` | task key | The task it's part of |
+| `parent` | task key | The task it's part of. A task others name here is an epic: the board shows it in the Epics view, not as a card |
 | `rank` | text | Its place in its column: sorts as text, so a move changes one task |
 | `reviewers` | @handles, at most 10 | Who checks it before it's done (optional) |
 | `done_when` | text, at most 10 | The evidence that closes it: "the PR is merged" (optional) |

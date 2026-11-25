@@ -91,6 +91,26 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
 .split.open #main{display:none}
 .wrap.open .tabs{display:none}
 .col h2{display:none}
+.pick{border:1px solid var(--rule);background:var(--surface);border-radius:var(--radius);padding:4px 8px;min-height:32px;max-width:min(320px,60vw);font-size:14px}
+.in{font-size:13px;color:var(--muted);display:block;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.epics{list-style:none;margin:16px;padding:0;border-top:1px solid var(--rule)}
+.epics li{border-bottom:1px solid var(--rule)}
+.epic{border:0;background:none;width:100%;text-align:left;cursor:pointer;padding:12px 8px;min-height:44px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 16px;align-items:baseline}
+.epic:hover{background:var(--surface)}
+.epic b{font-weight:600}
+.epic .n,.about .n{color:var(--muted);font-size:14px;white-space:nowrap}
+.epic .meter{grid-column:1/-1}
+.epic .say{grid-column:1/-1;color:var(--muted);font-size:14px}
+.meter{display:flex;height:6px;border-radius:99px;overflow:hidden;background:var(--rule);margin-top:6px}
+.meter i{display:block;height:100%}
+.about{margin:16px 16px 0}
+.about p{margin:2px 0 0;font-size:14px;color:var(--muted);max-width:70ch}
+.about h2{font-size:17px;line-height:1.3;font-weight:600;margin:0;display:inline}
+.about .x{vertical-align:-3px}
+.kids{list-style:none;margin:0;padding:0;border-top:1px solid var(--rule);font-size:14px}
+.kids button{border:0;border-bottom:1px solid var(--rule);background:none;width:100%;text-align:left;padding:6px 2px;min-height:36px;cursor:pointer;display:flex;gap:10px}
+.kids .t{flex:1;min-width:0}
+.kids .n{color:var(--muted);white-space:nowrap}
 @media (pointer:coarse){.kbd{display:none}}
 @media (max-width:639px){#cmd-btn{display:none}}
 .gate{margin:48px auto;max-width:520px;padding:16px;text-align:center;color:var(--muted)}
@@ -113,9 +133,10 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
 </header>
 <div class="bar">
   <span class="seg" role="group" aria-label="View">
-    <button type="button" id="v-board" aria-pressed="true">Board</button><button type="button" id="v-list" aria-pressed="false">List</button>
+    <button type="button" id="v-board" aria-pressed="true">Board</button><button type="button" id="v-list" aria-pressed="false">List</button><button type="button" id="v-epics" aria-pressed="false" hidden>Epics</button>
   </span>
   <span class="kbd" title="Switch between board and list">⌘B</span>
+  <select class="pick" id="pick" aria-label="Epic" hidden></select>
   <span class="grow"></span>
   <button type="button" class="btn" id="cmd-btn">Command menu <span class="kbd">⌘K</span></button>
   <button type="button" class="btn primary" id="new-btn">New task <span class="kbd">N</span></button>
@@ -138,6 +159,9 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
   var SRC = "{{SOURCE}}";
   var TASKS = SRC + "/tasks", LABELS = SRC + "/labels", SETTINGS = SRC + "/settings";
   var STATES = [["backlog", "Backlog"], ["todo", "Todo"], ["in_progress", "In progress"], ["in_review", "In review"], ["done", "Done"]];
+  // Epics list what's moving first, then what's next, then what's done.
+  var STATE_AT = { in_progress: 0, in_review: 1, todo: 2, backlog: 3, done: 4, dropped: 5 };
+  var STATE_COLOR = { done: "#15803d", in_review: "#b45309", in_progress: "#4f46e5", todo: "#8b8d98", backlog: "#c8c8c4" };
   var PRIORITIES = [["urgent", "Urgent"], ["high", "High"], ["medium", "Medium"], ["low", "Low"], ["none", "No priority"]];
   var VIEW_KEY = "projects-board:" + SRC;
 
@@ -197,8 +221,8 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
 
   // --- State ---
   var tasks = {}, labels = {}, settings = null;
-  var view = { mode: "board", tab: "todo", showDone: false };
-  try { var saved = JSON.parse(localStorage.getItem(VIEW_KEY) || "{}"); if (saved && typeof saved === "object") { if (saved.mode === "list") view.mode = "list"; if (saved.tab) view.tab = String(saved.tab); view.showDone = !!saved.showDone; } } catch (e) {}
+  var view = { mode: "board", tab: "todo", showDone: false, epic: "" };
+  try { var saved = JSON.parse(localStorage.getItem(VIEW_KEY) || "{}"); if (saved && typeof saved === "object") { if (saved.mode === "list" || saved.mode === "epics") view.mode = saved.mode; view.epic = String(saved.epic || ""); if (saved.tab) view.tab = String(saved.tab); view.showDone = !!saved.showDone; } } catch (e) {}
   function keepView() { try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch (e) {} }
   // The last tasks this reader saw, so a board they open again draws at once and then catches up.
   var CACHE_KEY = "projects-cache:" + SRC;
@@ -228,7 +252,20 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
   function handle(h) { h = String(h || "").trim(); return h ? (h[0] === "@" ? h : "@" + h) : ""; }
   function stateOf(t) { var s = t.data.state; return STATES.some(function (x) { return x[0] === s; }) || s === "dropped" ? s : "backlog"; }
   function keyOf(t) { return String(t.data.key || ""); }
-  function byKey(k) { for (var id in tasks) if (keyOf(tasks[id]) === k) return tasks[id]; return null; }
+  // An epic is a task that others name as their parent. The index is made again whenever tasks change.
+  var index = { key: {}, kids: {} };
+  function reindex() {
+    index = { key: {}, kids: {} };
+    Object.keys(tasks).forEach(function (id) { var t = tasks[id], k = keyOf(t); if (k) index.key[k] = t; });
+    Object.keys(tasks).forEach(function (id) { var t = tasks[id], p = String(t.data.parent || ""); if (p && p !== keyOf(t) && index.key[p] && stateOf(t) !== "dropped") (index.kids[p] = index.kids[p] || []).push(t); });
+  }
+  function byKey(k) { return index.key[k] || null; }
+  function kidsOf(t) { var k = keyOf(t); return k && index.kids[k] || []; }
+  function isEpic(t) { return kidsOf(t).length > 0; }
+  function epicOf(t) { var p = byKey(String(t.data.parent || "")); return p && p !== t ? p : null; }
+  function epics() { return sorted(Object.keys(index.kids).map(function (k) { return index.key[k]; })).sort(function (a, b) { return STATE_AT[stateOf(a)] - STATE_AT[stateOf(b)] || prio(a) - prio(b) || num(keyOf(a).split("-")[1]) - num(keyOf(b).split("-")[1]); }); }
+  function prio(t) { var i = PRIORITIES.map(function (x) { return x[0]; }).indexOf(t.data.priority || "none"); return i < 0 ? 4 : i; }
+  function under(t, key) { for (var p = epicOf(t), n = 0; p && n < 20; p = epicOf(p), n++) if (keyOf(p) === key) return true; return false; }
   function goodColor(c) { return /^#[0-9a-fA-F]{6}$/.test(String(c || "")) ? c : "#6b7280"; }
   function dateText(iso) { if (!iso) return ""; var d = new Date(iso); return isNaN(d) ? "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric" }); }
   function dueText(due) { return /^\d{4}-\d{2}-\d{2}$/.test(String(due || "")) ? dateText(due + "T12:00:00") : ""; }
@@ -257,7 +294,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
       return String(x.created || "") < String(y.created || "") ? -1 : 1;
     });
   }
-  function inState(s) { return sorted(Object.keys(tasks).map(function (k) { return tasks[k]; }).filter(function (t) { return stateOf(t) === s; })); }
+  function inState(s) { return sorted(Object.keys(tasks).map(function (k) { return tasks[k]; }).filter(function (t) { return stateOf(t) === s && !isEpic(t) && (!view.epic || under(t, view.epic)); })); }
   function blocks(t) { var k = keyOf(t); if (!k) return []; return Object.keys(tasks).map(function (i) { return tasks[i]; }).filter(function (o) { return arr(o.data.blocked_by).indexOf(k) >= 0; }); }
   function openBlockers(t) { return arr(t.data.blocked_by).filter(function (k) { var b = byKey(k); return !b || (stateOf(b) !== "done" && stateOf(b) !== "dropped"); }); }
 
@@ -277,7 +314,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
     // A div, not a button: browsers don't all let a button be dragged. Enter and Space open it, as a button's would.
     var c = chipsFor(t);
     return '<div role="button" tabindex="0" class="card" draggable="true" data-id="' + esc(t.id) + '"' + (c ? ' aria-describedby="chips-' + esc(t.id) + '"' : "") + (t.id === openId ? ' aria-current="true"' : "") + ">" +
-      (keyOf(t) ? '<span class="ref">' + esc(keyOf(t)) + "</span>" : t.pending ? '<span class="ref">Adding\u2026</span>' : "") + esc(t.data.title || "Untitled") + c + "</div>";
+      (keyOf(t) ? '<span class="ref">' + esc(keyOf(t)) + "</span>" : t.pending ? '<span class="ref">Adding\u2026</span>' : "") + esc(t.data.title || "Untitled") + (epicOf(t) && keyOf(epicOf(t)) !== view.epic ? '<span class="in">' + esc(epicOf(t).data.title) + "</span>" : "") + c + "</div>";
   }
   function drawTabs() {
     var tabs = $("tabs");
@@ -310,12 +347,43 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
     }).join("");
     return '<table class="list"><thead><tr><th>Key</th><th>Title</th><th>Assignees</th><th>Priority</th><th>Due</th></tr></thead><tbody>' + rows + "</tbody></table>";
   }
+  function progress(t) {
+    var all = kidsOf(t), n = all.length, c = {};
+    all.forEach(function (k) { var s = stateOf(k); c[s] = (c[s] || 0) + 1; });
+    return { done: c.done || 0, n: n, meter: '<span class="meter" role="img" aria-label="' + (c.done || 0) + " of " + n + ' done">' + ["done", "in_review", "in_progress", "todo"].map(function (s) { return c[s] ? '<i style="width:' + (100 * c[s] / n) + "%;background:" + STATE_COLOR[s] + '"></i>' : ""; }).join("") + "</span>" };
+  }
+  function stateName(t) { var s = stateOf(t); return (STATES.filter(function (x) { return x[0] === s; })[0] || [s, "Dropped"])[1]; }
+  function firstLine(v) { return String(v || "").split("\n")[0]; }
+  function drawEpics() {
+    return '<ul class="epics">' + epics().map(function (t) {
+      var p = progress(t);
+      return '<li><button type="button" class="epic" data-epic="' + esc(keyOf(t)) + '"><b>' + esc(t.data.title) + '</b><span class="n">' + esc(stateName(t)) + " · " + p.done + " of " + p.n + " done</span>" +
+        (t.data.body ? '<span class="say">' + esc(firstLine(t.data.body)) + "</span>" : "") + p.meter + "</button></li>";
+    }).join("") + "</ul>";
+  }
+  function drawAbout() {
+    var t = view.epic && byKey(view.epic); if (!t) return "";
+    var p = progress(t);
+    return '<section class="about"><h2>' + esc(t.data.title) + '</h2> <button type="button" class="x" data-epic="" aria-label="Show every epic">×</button> <button type="button" class="btn" data-id="' + esc(t.id) + '">Open epic</button> <span class="n">' + esc(stateName(t)) + " · " + p.done + " of " + p.n + " done</span>" +
+      (t.data.body ? "<p>" + esc(firstLine(t.data.body)) + "</p>" : "") + p.meter + "</section>";
+  }
+  function drawPick() {
+    var list = epics(), el = $("pick");
+    if (view.epic && !index.kids[view.epic]) view.epic = "";
+    if (view.mode === "epics" && !list.length) view.mode = "board";
+    $("v-epics").hidden = !list.length; el.hidden = !list.length || view.mode === "epics";
+    var h = '<option value="">Every epic</option>' + list.map(function (t) { return '<option value="' + esc(keyOf(t)) + '">' + esc(t.data.title) + "</option>"; }).join("");
+    if (el._h !== h) { el.innerHTML = h; el._h = h; }
+    el.value = view.epic;
+  }
   function draw() {
     if (!loaded) return;
+    reindex(); drawPick();
     $("v-board").setAttribute("aria-pressed", view.mode === "board");
     $("v-list").setAttribute("aria-pressed", view.mode === "list");
+    $("v-epics").setAttribute("aria-pressed", view.mode === "epics");
     drawTabs();
-    $("main").innerHTML = view.mode === "board" ? drawBoard() : drawList();
+    $("main").innerHTML = view.mode === "epics" ? drawEpics() : drawAbout() + (view.mode === "board" ? drawBoard() : drawList());
     $("split").classList.toggle("open", !!(openId || drafting));
     document.querySelector(".wrap").classList.toggle("open", !!(openId || drafting));
   }
@@ -331,7 +399,11 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
     var d = t.data;
     var labelBoxes = Object.keys(labels).map(function (id) { var l = labels[id];
       return '<label><input type="checkbox" data-label="' + esc(id) + '"' + (arr(d.labels).indexOf(id) >= 0 ? " checked" : "") + '><span class="dot" style="background:' + goodColor(l.data.color) + '"></span>' + esc(l.data.name) + "</label>"; }).join("") || '<span class="meta">No labels in this project.</span>';
-    var blk = drafting ? [] : blocks(t);
+    var blk = drafting ? [] : blocks(t), kids = drafting ? [] : sorted(kidsOf(t).slice()).sort(function (a, b) { return STATE_AT[stateOf(a)] - STATE_AT[stateOf(b)]; });
+    if (drafting && view.epic) d.parent = view.epic;
+    var parents = epics(), up = byKey(String(d.parent || ""));
+    if (up && parents.indexOf(up) < 0) parents.push(up);
+    parents = parents.filter(function (e) { return e.id !== t.id && !under(e, keyOf(t)); });
     p.innerHTML =
       '<div class="panel-head"><div class="grow"><span class="ref">' + esc(drafting ? "New task" : (keyOf(t) || "Task")) + (settings && settings.data.name && settings.data.name !== document.querySelector(".top h1").textContent.trim() ? " · " + esc(settings.data.name) : "") + "</span>" +
       '<textarea class="title" data-f="title" maxlength="200" rows="1" placeholder="Task title" aria-label="Title">' + esc(d.title || "") + "</textarea></div>" +
@@ -341,11 +413,13 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
       field("Assignees", '<input data-f="assignees" placeholder="@handle, @handle" value="' + esc(arr(d.assignees).map(handle).join(", ")) + '">') +
       field("Priority", select("priority", PRIORITIES, d.priority || "none")) +
       field("Due", '<input type="date" data-f="due" value="' + esc(/^\d{4}-\d{2}-\d{2}$/.test(String(d.due || "")) ? d.due : "") + '">') +
+      field("Epic", select("parent", [["", "None"]].concat(parents.map(function (e) { return [esc(keyOf(e)), String(e.data.title || "")]; })), String(d.parent || ""))) +
       field("Labels", '<div class="labels">' + labelBoxes + "</div>") +
       field("Blocked by", '<input data-f="blocked_by" placeholder="' + esc(((settings && settings.data.key) || "TASK") + "-3, " + ((settings && settings.data.key) || "TASK") + "-7") + '" value="' + esc(arr(d.blocked_by).join(", ")) + '">') +
       (blk.length ? field("Blocks", esc(blk.map(keyOf).join(", "))) : "") +
       field("Reviewers", '<input data-f="reviewers" placeholder="@handle" value="' + esc(arr(d.reviewers).map(handle).join(", ")) + '">') +
       "</dl>" +
+      (kids.length ? "<h3>Tasks in this epic · " + progress(t).done + " of " + kids.length + ' done</h3><ul class="kids">' + kids.map(function (k) { return '<li><button type="button" data-kid="' + esc(k.id) + '"><span class="t">' + esc(k.data.title || "Untitled") + '</span><span class="n">' + esc(stateName(k)) + "</span></button></li>"; }).join("") + "</ul>" : "") +
       '<h3>Description</h3><textarea data-f="body" maxlength="10000" placeholder="What done means, and anything else worth knowing">' + esc(d.body || "") + "</textarea>" +
       (drafting ? '<p><button type="button" class="btn primary" id="create">Create task</button></p>' :
         '<p class="meta">Created ' + esc(dateText(t.created)) + (t.author && (t.author.handle || t.author.name) ? " by " + esc(t.author.handle ? handle(t.author.handle) : t.author.name) : "") + " · Last updated " + esc(dateText(t.updated)) + "</p>");
@@ -356,6 +430,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
       ti.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); if (drafting) createTask(); else ti.blur(); } });
     }
     $("close").onclick = closePanel;
+    p.querySelectorAll("[data-kid]").forEach(function (b) { b.onclick = function () { openTask(b.getAttribute("data-kid")); }; });
     if (drafting) { $("create").onclick = createTask; setTimeout(function () { var i = p.querySelector('[data-f="title"]'); if (i) i.focus(); }, 0); return; }
     p.querySelectorAll("[data-f]").forEach(function (el) {
       el.addEventListener("change", function () { saveField(el.getAttribute("data-f"), el.value); });
@@ -517,13 +592,17 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
     { label: "Priority", key: "P", task: true, run: function () { focusField("priority"); } },
     { label: "Labels", key: "L", task: true, run: function () { var el = $("panel").querySelector("[data-label]"); if (el) el.focus(); } },
     { label: "Due date", key: "D", task: true, run: function () { focusField("due"); } },
+    { label: "Epic", key: "E", task: true, run: function () { focusField("parent"); } },
     { label: "Next task", key: "J", run: function () { step(1); } },
     { label: "Previous task", key: "K", run: function () { step(-1); } },
     { label: "Show or fold done tasks", key: "⇧D", run: function () { view.showDone = !view.showDone; keepView(); draw(); } },
+    { label: "Epics", key: "⇧E", run: function () { setMode("epics"); } },
     { label: "Close the task", key: "×", task: true, run: closePanel }
   ];
   function newTask() { openId = null; drafting = true; draw(); drawPanel(); }
-  function toggleView() { view.mode = view.mode === "board" ? "list" : "board"; keepView(); draw(); }
+  function setMode(m) { view.mode = m; keepView(); draw(); }
+  function toggleView() { setMode(view.mode === "board" ? "list" : "board"); }
+  function pickEpic(k) { view.epic = k; if (view.mode === "epics") view.mode = "board"; keepView(); draw(); }
   function focusField(f) { var el = $("panel").querySelector('[data-f="' + f + '"]'); if (el) el.focus(); }
   function step(dir) {
     var order = [];
@@ -565,22 +644,22 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
     var a = document.activeElement;
     if (a && (/INPUT|TEXTAREA|SELECT/.test(a.tagName) || a.isContentEditable)) return;
     var hit = null;
-    if (k === "n") hit = actions[0];
-    else if (k === "j") hit = actions[7];
-    else if (k === "k") hit = actions[8];
-    else if (k === "d" && e.shiftKey) hit = actions[9];
-    else if (openId && !e.shiftKey) hit = { s: actions[2], a: actions[3], p: actions[4], l: actions[5], d: actions[6] }[k] || null;
+    var want = (e.shiftKey ? "⇧" : "") + k.toUpperCase();
+    actions.forEach(function (x) { if (x.key === want && (!x.task || openId)) hit = x; });
     if (hit) { e.preventDefault(); runCmd(hit); }
   });
 
   // --- Clicks, tabs and drag. ---
-  $("v-board").onclick = function () { if (view.mode !== "board") toggleView(); };
-  $("v-list").onclick = function () { if (view.mode !== "list") toggleView(); };
+  $("v-board").onclick = function () { setMode("board"); };
+  $("v-list").onclick = function () { setMode("list"); };
+  $("v-epics").onclick = function () { setMode("epics"); };
+  $("pick").onchange = function () { pickEpic(this.value); };
   $("cmd-btn").onclick = openCmd;
   $("new-btn").onclick = newTask;
   $("tabs").addEventListener("click", function (e) { var b = e.target.closest("[data-tab]"); if (!b) return; view.tab = b.getAttribute("data-tab"); keepView(); draw(); });
   $("main").addEventListener("click", function (e) {
     var f = e.target.closest("[data-fold]"); if (f) { view.showDone = f.getAttribute("data-fold") === "open"; keepView(); draw(); return; }
+    var ep = e.target.closest("[data-epic]"); if (ep) { pickEpic(ep.getAttribute("data-epic")); return; }
     var c = e.target.closest("[data-id]"); if (c && !/^new-/.test(c.getAttribute("data-id"))) openTask(c.getAttribute("data-id"));
   });
   $("main").addEventListener("keydown", function (e) {
