@@ -55,8 +55,8 @@ if it isn't installed) and prints the links as JSON.
 Without this skill's folder: `npx -y spacesheep@latest skills get @spacesheep/projects -o <an empty folder>`, then the
 same command from that folder.
 
-Spacesheep takes 120 record writes a minute from one person, so a bigger import waits out the minute by itself (300
-tasks take about three minutes). A project holds at most 2,000 tasks, and anyone but the database's owner makes at most
+Spacesheep takes 120 record writes a minute from one person, so a bigger import may pause for a minute and go on by
+itself. A project holds at most 2,000 tasks, and anyone but the database's owner makes at most
 200 of them.
 
 **Epics:** a task that others name as their `parent` is an epic. Put it in the list before its tasks and give it a one-line
