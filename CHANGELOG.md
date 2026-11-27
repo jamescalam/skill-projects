@@ -1,31 +1,24 @@
 # Changelog
 
-Each release is a heading with its tag. The release workflow uses the words under it as the release's notes.
+Newest first. Each release is `## v<major>.<minor>.<patch> · YYYY-MM-DD`, then at most 6 lines, one per change, each
+starting with Added, Changed, Fixed, Removed or Breaking, about 100 characters at most. The release workflow copies
+the lines under a tag's heading into its GitHub release, and Spacesheep shows them on the skill's Versions tab.
 
-## v1.2.0
+## v1.2.0 · 2026-11-27
+- Added: imports keep their own keys (`ALA-2135`), authors and dates; new tasks count on from there.
+- Added: sprints and estimates on tasks, and a This sprint filter on the board.
+- Added: assignees and reviewers by name as well as by @handle.
+- Added: `--team` puts a project in a team; `archive` moves finished tasks off the boards.
+- Added: `check` lists broken parents, blockers, labels and repeated keys.
+- Fixed: `add` read only the first 200 tasks.
 
-- Imports keep their own keys (`PROJ-12`); new tasks count on from the highest.
-- `new` takes `--team` and `--team-access`, so a project can live in a team.
-- `projects.js check <database>` reports what is wrong with a project.
-- Sprints and estimates: `sprint` and `estimate` on a task, and a sprint filter on the board with *This sprint*.
-- Assignees and reviewers take names as well as @handles.
-- `source {ref, url, created_at, author}` keeps where a task came from, shown as *Imported from* and *Created*; ⌘K finds
-  the old key.
-- An `archive` collection past the 2,000-task cap: `--archive done` on `new`, and `projects.js archive`.
-- `add` reads every task (it stopped at 200), and the command's answer lists any body it had to cut.
+## v1.1.0 · 2026-11-27
+- Added: epics, with an Epics view, an epic filter and an Epic field on each task.
+- Added: `--show public` opens the boards to everyone, read only; the database stays private.
+- Fixed: the database page counted only the first 200 tasks.
 
-## v1.1.0
-
-- Epics: a task that others name as their parent. The board has an Epics view with each one's progress, a filter by epic,
-  and an Epic field on a task. An epic's panel lists its tasks.
-- A public board: `--show public` opens the boards to everyone, read only, while the database stays private. A visitor sees
-  the tasks and nothing to edit; a property with nothing in it isn't shown.
-- The database page counts every task (it stopped at 200), and leaves epics out of its counts.
-
-## v1.0.0
-
-- The first release.
-- One command, `assets/projects.js new`, builds a project in about a second: the database space, its settings and
-  labels, every task, every board, each board allowed to write, all shared alike. `add` adds tasks later.
-- Boards show a change the moment it's made and send it after, and draw at once from what the reader last saw.
-- The database page is the project's home: its boards, where things stand, and the last changes, live.
+## v1.0.0 · 2026-11-23
+- Added: `projects.js new` builds a project in about a second: database, labels, tasks and boards.
+- Added: `add` adds tasks later, and two agents adding at once never share a key.
+- Added: boards show changes live and open at once on what the reader saw last.
+- Added: the database page lists the boards, where things stand and the last changes.
