@@ -1,35 +1,40 @@
 # The task shape
 
-A project is one database space with three shared collections. The repo's `proto/task.proto` is the same shape as
+A project is one database space with three shared collections, and an archive. The repo's `proto/task.proto` is the same shape as
 protobuf messages.
 
 | Collection | One record per | Holds |
 |---|---|---|
 | `tasks` | task | the fields below |
 | `labels` | label | `{name, color}`: a task names its labels by record id, so a rename reaches every card |
-| `settings` | project (exactly one) | `{key, name, next, home, boards}`: the project key, the next task number, and where the project lives |
+| `settings` | project (exactly one) | `{key, name, next, home, boards, sprints}`: the project key, the next task number, where the project lives, its sprints |
+| `archive` | finished task | Tasks taken off the boards (`projects.js archive`), same shape. Boards don't load it; keys there stay taken |
 
 ## A task
 
 | Field | Type | Holds |
 |---|---|---|
-| `key` | text, `<KEY>-<n>` | Its key, `PROJ-12`. Taken from `settings.next` when the task is made; never reused |
+| `key` | text, `<KEY>-<n>` | Its key, `PROJ-12`. Taken from `settings.next` when the task is made; never reused. An import may keep its own (`ALA-2135` in a project keyed ALA): `next` then goes past the highest |
 | `title` | text, 1-200 characters | What it is, in a line |
 | `body` | Markdown, at most 10,000 characters | What done means, and anything else worth knowing |
 | `state` | `backlog`, `todo`, `in_progress`, `in_review`, `done` or `dropped` | Where it is; a board's columns, in this order. `dropped` is hidden from the board |
-| `assignees` | @handles, at most 10 | Who does it: people or agents |
+| `assignees` | @handles or names, at most 10 | Who does it: people or agents. `@handle` for someone on Spacesheep, else a name as written ("Carlos", "Release agent") |
 | `priority` | `urgent`, `high`, `medium`, `low` or `none` | How soon |
 | `labels` | label record ids, at most 10 | Its labels. An id with no label record is hidden |
 | `due` | date, `YYYY-MM-DD` | When it's due |
+| `sprint` | text, at most 80 characters | The sprint it's planned in: a name in `settings.sprints` |
+| `estimate` | number, 0 or more | Its size, in points or hours (shown as "3 pts") |
 | `blocked_by` | task keys, at most 20 | What must finish first. A board shows the other side as "Blocks" |
 | `parent` | task key | The task it's part of. A task others name here is an epic: the board shows it in the Epics view, not as a card |
 | `rank` | text | Its place in its column: sorts as text, so a move changes one task |
-| `reviewers` | @handles, at most 10 | Who checks it before it's done (optional) |
+| `reviewers` | @handles or names, at most 10 | Who checks it before it's done (optional) |
 | `done_when` | text, at most 10 | The evidence that closes it: "the PR is merged" (optional) |
 | `links` | URLs, at most 20 | A PR, a space, a thread (optional) |
+| `source` | `{ref, url, created_at, author}` | Where an imported task came from: its old key, its link, when and by whom it was made there. The board shows "Imported from", finds the old key in ⌘K, and shows these as "Created" (optional) |
 
 Who made a task, and when it was made and last changed, come from the record itself (`author`, `created_at`,
-`updated_at`), never from its data. Boards show them as "Created" and "Last updated".
+`updated_at`). Boards show them as "Created" and "Last updated"; an imported task's `source.created_at` and
+`source.author` are shown as "Created" instead.
 
 ```json
 {
@@ -59,8 +64,11 @@ Who made a task, and when it was made and last changed, come from the record its
 ```json
 { "key": "PROJ", "name": "Projects skill", "next": 1,
   "home": "https://spacesheep.dev/@you/projects-skill",
-  "boards": [{ "name": "Board", "url": "https://spacesheep.dev/@you/projects-skill-board" }] }
+  "boards": [{ "name": "Board", "url": "https://spacesheep.dev/@you/projects-skill-board" }],
+  "sprints": [{ "name": "Cycle 19", "start": "2026-11-24", "end": "2026-12-07" }] }
 ```
+
+`sprints` is optional: a board filters by sprint once any exists, and offers "This sprint" when one's dates hold today.
 
 `home` is the database space; `boards` is every board, which the database page lists. A new board is added here, and
 to the writers of `tasks`, `labels` and `settings`.

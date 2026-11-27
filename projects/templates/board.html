@@ -142,6 +142,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
   </span>
   <span class="kbd" title="Switch between board and list">⌘B</span>
   <select class="pick" id="pick" aria-label="Epic" hidden></select>
+  <select class="pick" id="sprint" aria-label="Sprint" hidden></select>
   <span class="grow"></span>
   <button type="button" class="btn" id="cmd-btn">Command menu <span class="kbd">⌘K</span></button>
   <button type="button" class="btn primary" id="new-btn">New task <span class="kbd">N</span></button>
@@ -227,8 +228,8 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
 
   // --- State ---
   var tasks = {}, labels = {}, settings = null;
-  var view = { mode: "board", tab: "todo", showDone: false, epic: "" };
-  try { var saved = JSON.parse(localStorage.getItem(VIEW_KEY) || "{}"); if (saved && typeof saved === "object") { if (saved.mode === "list" || saved.mode === "epics") view.mode = saved.mode; view.epic = String(saved.epic || ""); if (saved.tab) view.tab = String(saved.tab); view.showDone = !!saved.showDone; view.ro = !!saved.ro; } } catch (e) {}
+  var view = { mode: "board", tab: "todo", showDone: false, epic: "", sprint: "" };
+  try { var saved = JSON.parse(localStorage.getItem(VIEW_KEY) || "{}"); if (saved && typeof saved === "object") { if (saved.mode === "list" || saved.mode === "epics") view.mode = saved.mode; view.epic = String(saved.epic || ""); view.sprint = String(saved.sprint || ""); if (saved.tab) view.tab = String(saved.tab); view.showDone = !!saved.showDone; view.ro = !!saved.ro; } } catch (e) {}
   function keepView() { try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch (e) {} }
   // The last tasks this reader saw, so a board they open again draws at once and then catches up.
   var CACHE_KEY = "projects-cache:" + SRC;
@@ -266,6 +267,17 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
   function note(t, bad) { var n = $("note"); n.textContent = t || ""; n.className = "note" + (bad ? " bad" : ""); }
   function arr(v) { return Array.isArray(v) ? v : []; }
   function handle(h) { h = String(h || "").trim(); return h ? (h[0] === "@" ? h : "@" + h) : ""; }
+  // An assignee or reviewer: an @handle, or a name as written (an agent, someone without an account).
+  function who(h) { return String(h || "").trim(); }
+  function src(t) { var s = t.data.source; return s && typeof s === "object" ? s : {}; }
+  // Sprints: the settings record's, then any a task names. "now" is the one whose dates hold today.
+  function sprints() {
+    var out = [], seen = {};
+    arr(settings && settings.data.sprints).concat(Object.keys(tasks).map(function (k) { return { name: tasks[k].data.sprint }; })).forEach(function (x) { var n = String(x && x.name || ""); if (n && !seen[n]) { seen[n] = 1; out.push(x); } });
+    return out;
+  }
+  function sprintNow() { var d = new Date().toISOString().slice(0, 10); return sprints().filter(function (x) { return x.start && x.end && x.start <= d && d <= x.end; }).map(function (x) { return x.name; })[0] || ""; }
+  function inSprint(t) { var s = view.sprint === ":now" ? sprintNow() : view.sprint; return !s || String(t.data.sprint || "") === s; }
   function stateOf(t) { var s = t.data.state; return STATES.some(function (x) { return x[0] === s; }) || s === "dropped" ? s : "backlog"; }
   function keyOf(t) { return String(t.data.key || ""); }
   // An epic is a task that others name as their parent. The index is made again whenever tasks change.
@@ -310,15 +322,16 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
       return String(x.created || "") < String(y.created || "") ? -1 : 1;
     });
   }
-  function inState(s) { return sorted(Object.keys(tasks).map(function (k) { return tasks[k]; }).filter(function (t) { return stateOf(t) === s && !isEpic(t) && (!view.epic || under(t, view.epic)); })); }
+  function inState(s) { return sorted(Object.keys(tasks).map(function (k) { return tasks[k]; }).filter(function (t) { return stateOf(t) === s && !isEpic(t) && (!view.epic || under(t, view.epic)) && inSprint(t); })); }
   function blocks(t) { var k = keyOf(t); if (!k) return []; return Object.keys(tasks).map(function (i) { return tasks[i]; }).filter(function (o) { return arr(o.data.blocked_by).indexOf(k) >= 0; }); }
   function openBlockers(t) { return arr(t.data.blocked_by).filter(function (k) { var b = byKey(k); return !b || (stateOf(b) !== "done" && stateOf(b) !== "dropped"); }); }
 
   // --- Drawing ---
   function chipsFor(t) {
-    var who = arr(t.data.assignees).map(handle).filter(Boolean), h = "";
-    if (who.length) h = '<span class="chip"><span class="av">' + esc(who[0].slice(1, 2).toUpperCase()) + "</span>" + esc(who[0].slice(1)) + (who.length > 1 ? " +" + (who.length - 1) : "") + "</span>";
+    var ws = arr(t.data.assignees).map(who).filter(Boolean), h = "", w0 = (ws[0] || "").replace(/^@/, "");
+    if (ws.length) h = '<span class="chip"><span class="av">' + esc(w0.slice(0, 1).toUpperCase()) + "</span>" + esc(w0) + (ws.length > 1 ? " +" + (ws.length - 1) : "") + "</span>";
     var p = t.data.priority; if (p && p !== "none") h += '<span class="chip">' + esc((PRIORITIES.filter(function (x) { return x[0] === p; })[0] || [p, p])[1]) + "</span>";
+    if (Number(t.data.estimate) > 0) h += '<span class="chip">' + esc(t.data.estimate) + " pt" + (Number(t.data.estimate) === 1 ? "" : "s") + "</span>";
     var due = dueText(t.data.due); if (due) h += '<span class="chip' + (overdue(t) ? " warn" : "") + '">' + esc(due) + "</span>";
     // One line: who, priority, due, then a dot per label (its name is spoken, and shown on hover).
     // A chip that doesn't fit whole goes to a second row the card never shows. Only an overdue date is amber.
@@ -358,7 +371,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
       if (s[0] === "done" && !view.showDone) return head + (list.length ? '<tr class="row" data-fold="open"><td colspan="5" class="fold">' + list.length + " done · Show</td></tr>" : "");
       return head + list.map(function (t) {
         return '<tr class="row" data-id="' + esc(t.id) + '"' + (t.id === openId ? ' aria-current="true"' : "") + "><td>" + esc(keyOf(t)) + "</td><td>" + esc(t.data.title || "Untitled") +
-          "</td><td>" + esc(arr(t.data.assignees).map(handle).join(", ")) + "</td><td>" + esc(t.data.priority && t.data.priority !== "none" ? t.data.priority : "") + "</td><td>" + esc(dueText(t.data.due)) + "</td></tr>";
+          "</td><td>" + esc(arr(t.data.assignees).map(who).join(", ")) + "</td><td>" + esc(t.data.priority && t.data.priority !== "none" ? t.data.priority : "") + "</td><td>" + esc(dueText(t.data.due)) + "</td></tr>";
       }).join("");
     }).join("");
     return '<table class="list"><thead><tr><th>Key</th><th>Title</th><th>Assignees</th><th>Priority</th><th>Due</th></tr></thead><tbody>' + rows + "</tbody></table>";
@@ -392,9 +405,16 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
     if (el._h !== h) { el.innerHTML = h; el._h = h; }
     el.value = view.epic;
   }
+  function drawSprint() {
+    var list = sprints(), el = $("sprint"), now = sprintNow();
+    if (view.sprint && view.sprint !== ":now" && !list.some(function (x) { return x.name === view.sprint; })) view.sprint = "";
+    el.hidden = !list.length || view.mode === "epics";
+    el.innerHTML = '<option value="">Every sprint</option>' + (now ? '<option value=":now">This sprint: ' + esc(now) + "</option>" : "") + list.map(function (x) { return '<option value="' + esc(x.name) + '">' + esc(x.name) + "</option>"; }).join("");
+    el.value = view.sprint === ":now" && !now ? "" : view.sprint;
+  }
   function draw() {
     if (!loaded) return;
-    reindex(); drawPick();
+    reindex(); drawPick(); drawSprint();
     $("v-board").setAttribute("aria-pressed", view.mode === "board");
     $("v-list").setAttribute("aria-pressed", view.mode === "list");
     $("v-epics").setAttribute("aria-pressed", view.mode === "epics");
@@ -417,6 +437,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
       return '<label><input type="checkbox" data-label="' + esc(id) + '"' + (arr(d.labels).indexOf(id) >= 0 ? " checked" : "") + '><span class="dot" style="background:' + goodColor(l.data.color) + '"></span>' + esc(l.data.name) + "</label>"; }).join("") || '<span class="meta">No labels in this project.</span>';
     var blk = drafting ? [] : blocks(t), kids = drafting ? [] : sorted(kidsOf(t).slice()).sort(function (a, b) { return STATE_AT[stateOf(a)] - STATE_AT[stateOf(b)]; });
     if (drafting && view.epic) d.parent = view.epic;
+    if (drafting && view.sprint) d.sprint = view.sprint === ":now" ? sprintNow() : view.sprint;
     var parents = epics(), up = byKey(String(d.parent || ""));
     if (up && parents.indexOf(up) < 0) parents.push(up);
     parents = parents.filter(function (e) { return e.id !== t.id && !under(e, keyOf(t)); });
@@ -426,19 +447,22 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
       '<button type="button" class="x" id="close" aria-label="Close the task">×</button></div>' +
       '<dl class="props">' +
       field("Status", select("state", STATES.concat([["dropped", "Dropped"]]), stateOf(t))) +
-      field("Assignees", '<input data-f="assignees" placeholder="@handle, @handle" value="' + esc(arr(d.assignees).map(handle).join(", ")) + '">') +
+      field("Assignees", '<input data-f="assignees" placeholder="@handle, or a name" value="' + esc(arr(d.assignees).map(who).join(", ")) + '">') +
       field("Priority", select("priority", PRIORITIES, d.priority || "none")) +
       field("Due", '<input type="date" data-f="due" value="' + esc(/^\d{4}-\d{2}-\d{2}$/.test(String(d.due || "")) ? d.due : "") + '">') +
+      field("Sprint", '<input data-f="sprint" list="sprints" maxlength="80" placeholder="None" value="' + esc(d.sprint || "") + '"><datalist id="sprints">' + sprints().map(function (x) { return '<option value="' + esc(x.name) + '">'; }).join("") + "</datalist>") +
+      field("Estimate", '<input type="number" data-f="estimate" min="0" step="any" inputmode="decimal" placeholder="None" value="' + esc(d.estimate == null ? "" : d.estimate) + '">') +
       field("Epic", select("parent", [["", "None"]].concat(parents.map(function (e) { return [esc(keyOf(e)), String(e.data.title || "")]; })), String(d.parent || ""))) +
       field("Labels", '<div class="labels">' + labelBoxes + "</div>") +
       field("Blocked by", '<input data-f="blocked_by" placeholder="' + esc(((settings && settings.data.key) || "TASK") + "-3, " + ((settings && settings.data.key) || "TASK") + "-7") + '" value="' + esc(arr(d.blocked_by).join(", ")) + '">') +
       (blk.length ? field("Blocks", esc(blk.map(keyOf).join(", "))) : "") +
-      field("Reviewers", '<input data-f="reviewers" placeholder="@handle" value="' + esc(arr(d.reviewers).map(handle).join(", ")) + '">') +
+      field("Reviewers", '<input data-f="reviewers" placeholder="@handle, or a name" value="' + esc(arr(d.reviewers).map(who).join(", ")) + '">') +
+      (src(t).ref || src(t).url ? field("Imported from", /^https:\/\//.test(String(src(t).url || "")) ? '<a href="' + esc(src(t).url) + '" target="_blank" rel="noopener">' + esc(src(t).ref || src(t).url) + "</a>" : esc(src(t).ref)) : "") +
       "</dl>" +
       (kids.length ? "<h3>Tasks in this epic · " + progress(t).done + " of " + kids.length + ' done</h3><ul class="kids">' + kids.map(function (k) { return '<li><button type="button" data-kid="' + esc(k.id) + '"><span class="t">' + esc(k.data.title || "Untitled") + '</span><span class="n">' + esc(stateName(k)) + "</span></button></li>"; }).join("") + "</ul>" : "") +
       '<h3>Description</h3><textarea data-f="body" maxlength="10000" placeholder="What done means, and anything else worth knowing">' + esc(d.body || "") + "</textarea>" +
       (drafting ? '<p><button type="button" class="btn primary" id="create">Create task</button></p>' :
-        '<p class="meta">Created ' + esc(dateText(t.created)) + (t.author && (t.author.handle || t.author.name) ? " by " + esc(t.author.handle ? handle(t.author.handle) : t.author.name) : "") + " · Last updated " + esc(dateText(t.updated)) + "</p>");
+        '<p class="meta">Created ' + esc(dateText(src(t).created_at || t.created)) + (src(t).author ? " by " + esc(src(t).author) : t.author && (t.author.handle || t.author.name) ? " by " + esc(t.author.handle ? handle(t.author.handle) : t.author.name) : "") + " · Last updated " + esc(dateText(t.updated)) + "</p>");
     var ti = p.querySelector("textarea.title");
     if (ti) {
       var fit = function () { ti.style.height = "auto"; ti.style.height = ti.scrollHeight + "px"; };
@@ -471,13 +495,15 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
     if (b.value) b.style.height = b.scrollHeight + "px"; else { b.hidden = true; b.previousElementSibling.hidden = true; }
   }
   function parseList(name, v) {
+    if (name === "assignees" || name === "reviewers") return String(v || "").split(",").map(who).filter(Boolean).slice(0, 10);
     var parts = String(v || "").split(/[\s,]+/).filter(Boolean);
-    if (name === "assignees" || name === "reviewers") return parts.map(handle).slice(0, 10);
     return parts.map(function (k) { return k.toUpperCase(); }).slice(0, 20);
   }
   function fieldValue(name, v) {
     if (name === "assignees" || name === "reviewers" || name === "blocked_by") return parseList(name, v);
     if (name === "title") return String(v).trim().slice(0, 200);
+    if (name === "sprint") return String(v).trim().slice(0, 80);
+    if (name === "estimate") return v === "" || !(Number(v) >= 0) ? "" : Number(v);
     return v;
   }
   function saveField(name, v) {
@@ -643,7 +669,11 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
   var cmdSel = 0;
   function cmdItems() {
     var q = $("cmd-q").value.trim().toLowerCase();
-    return actions.filter(function (a) { return !(ro && a.edit) && (!q || a.label.toLowerCase().indexOf(q) >= 0); });
+    var acts = actions.filter(function (a) { return !(ro && a.edit) && (!q || a.label.toLowerCase().indexOf(q) >= 0); });
+    if (!q) return acts;
+    // Then tasks whose key, title or imported ref holds what's typed: ALA-2135 finds the task it became.
+    var found = Object.keys(tasks).map(function (k) { return tasks[k]; }).filter(function (t) { return [keyOf(t), t.data.title, src(t).ref].some(function (x) { return String(x || "").toLowerCase().indexOf(q) >= 0; }); }).slice(0, 8);
+    return acts.concat(found.map(function (t) { return { label: (keyOf(t) ? keyOf(t) + " " : "") + (t.data.title || "Untitled"), key: src(t).ref && src(t).ref !== keyOf(t) ? src(t).ref : "", run: function () { openTask(t.id); } }; }));
   }
   function drawCmd() {
     var items = cmdItems(); if (cmdSel >= items.length) cmdSel = Math.max(0, items.length - 1);
@@ -681,6 +711,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
   $("v-list").onclick = function () { setMode("list"); };
   $("v-epics").onclick = function () { setMode("epics"); };
   $("pick").onchange = function () { pickEpic(this.value); };
+  $("sprint").onchange = function () { view.sprint = this.value; keepView(); draw(); };
   $("cmd-btn").onclick = openCmd;
   $("new-btn").onclick = newTask;
   $("tabs").addEventListener("click", function (e) { var b = e.target.closest("[data-tab]"); if (!b) return; view.tab = b.getAttribute("data-tab"); keepView(); draw(); });
