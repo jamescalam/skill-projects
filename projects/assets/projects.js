@@ -8,8 +8,10 @@
 //   node projects.js new "<project name>" [--key PROJ] [--boards "Board, Design review"]
 //                         [--labels "Design:#4f46e5, Bug:#b91c1c"] [--tasks tasks.json]
 //                         [--visibility private|members|signed_in|public] [--people "a@b.c, @handle"]
+//                         [--show signed_in|public]
 //       The database space, its settings and labels, the tasks in tasks.json, and each board, every
-//       board allowed to write, all shared alike. Prints the links as JSON.
+//       board allowed to write, all shared alike. --show opens the boards alone to everyone, read only:
+//       the database stays as --visibility has it. Prints the links as JSON.
 //   node projects.js add <database: @owner/slug or link> --tasks tasks.json
 //       More tasks: takes their keys in one guarded claim, then makes them side by side.
 //
@@ -185,6 +187,8 @@ async function newProject() {
   const labels = parseLabels(flags.labels);
   const tasks = readTasks(flags.tasks);
   const share = { ...(flags.visibility ? { visibility: flags.visibility } : {}), ...(flags.people ? { people: list(flags.people) } : {}) };
+  if (flags.show && !["signed_in", "public"].includes(flags.show)) die("--show: signed_in or public");
+  const shareBoard = flags.show ? { ...share, visibility: flags.show } : share;
   const ss = bridge();
   const slug = slugify(name);
   const boardTitle = (b) => (b === "Board" ? `${name} · Board` : `${name} · ${b}`);
@@ -202,7 +206,7 @@ async function newProject() {
   const planned = meP.then((h) => (h ? `@${String(h).replace(/^@/, "")}/${slug}` : null));
   const boardsP = Promise.all([planned, planned.then((src) => (src ? null : dbP))]).then(([src, db]) => {
     const source = src || db.name;
-    return all(boards.map((b) => ss.call("create_space", { title: boardTitle(b), emoji: "📋", description: `${b}: ${name}'s tasks, live`, label: "Board", ...share, files: boardFile(source, b) })
+    return all(boards.map((b) => ss.call("create_space", { title: boardTitle(b), emoji: "📋", description: `${b}: ${name}'s tasks, live`, label: "Board", ...shareBoard, files: boardFile(source, b) })
       .then((r) => r.space))).then((spaces) => ({ spaces, source }));
   }).then(async ({ spaces, source }) => {
     const db = await dbP;
@@ -222,7 +226,7 @@ async function newProject() {
   const tasksP = Promise.all([plainP, labelledP]).then(([a, b]) => log(`${labels.length} label(s), ${a.length + b.length} task(s)`));
   const restP = Promise.all([dbP, boardsP]).then(([db, spaces]) => all([
     write(() => ss.call("create_record", { space_id: db.id, collection: "settings", data: { key, name, next: tasks.length + 1, home: db.url, boards: spaces.map((sp, i) => ({ name: boards[i], url: sp.url })) } })),
-    all(["tasks", "labels", "settings"].map((c) => ss.call("update_collection", { space_id: db.id, collection: c, writers_ids: spaces.map((sp) => sp.id) }))),
+    all(["tasks", "labels", "settings"].map((c) => ss.call("update_collection", { space_id: db.id, collection: c, writers_ids: spaces.map((sp) => sp.id), ...(flags.show ? { readers_ids: spaces.map((sp) => sp.id) } : {}) }))),
   ]).then(() => log("settings, boards allowed to write")));
   const [db, spaces] = await Promise.all([dbP, boardsP, tasksP, restP]);
   ss.close();
