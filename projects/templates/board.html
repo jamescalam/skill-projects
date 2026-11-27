@@ -277,7 +277,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
     return out;
   }
   function sprintNow() { var d = new Date().toISOString().slice(0, 10); return sprints().filter(function (x) { return x.start && x.end && x.start <= d && d <= x.end; }).map(function (x) { return x.name; })[0] || ""; }
-  function inSprint(t) { var s = view.sprint === ":now" ? sprintNow() : view.sprint; return !view.sprint || String(t.data.sprint || "") === s; }
+  function inSprint(t) { var s = view.sprint === ":now" ? sprintNow() : view.sprint; return !s || String(t.data.sprint || "") === s; }
   function stateOf(t) { var s = t.data.state; return STATES.some(function (x) { return x[0] === s; }) || s === "dropped" ? s : "backlog"; }
   function keyOf(t) { return String(t.data.key || ""); }
   // An epic is a task that others name as their parent. The index is made again whenever tasks change.
@@ -410,7 +410,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
     if (view.sprint && view.sprint !== ":now" && !list.some(function (x) { return x.name === view.sprint; })) view.sprint = "";
     el.hidden = !list.length || view.mode === "epics";
     el.innerHTML = '<option value="">Every sprint</option>' + (now ? '<option value=":now">This sprint: ' + esc(now) + "</option>" : "") + list.map(function (x) { return '<option value="' + esc(x.name) + '">' + esc(x.name) + "</option>"; }).join("");
-    el.value = view.sprint;
+    el.value = view.sprint === ":now" && !now ? "" : view.sprint;
   }
   function draw() {
     if (!loaded) return;
@@ -437,6 +437,7 @@ dialog.cmd::backdrop{background:rgba(0,0,0,.15)}
       return '<label><input type="checkbox" data-label="' + esc(id) + '"' + (arr(d.labels).indexOf(id) >= 0 ? " checked" : "") + '><span class="dot" style="background:' + goodColor(l.data.color) + '"></span>' + esc(l.data.name) + "</label>"; }).join("") || '<span class="meta">No labels in this project.</span>';
     var blk = drafting ? [] : blocks(t), kids = drafting ? [] : sorted(kidsOf(t).slice()).sort(function (a, b) { return STATE_AT[stateOf(a)] - STATE_AT[stateOf(b)]; });
     if (drafting && view.epic) d.parent = view.epic;
+    if (drafting && view.sprint) d.sprint = view.sprint === ":now" ? sprintNow() : view.sprint;
     var parents = epics(), up = byKey(String(d.parent || ""));
     if (up && parents.indexOf(up) < 0) parents.push(up);
     parents = parents.filter(function (e) { return e.id !== t.id && !under(e, keyOf(t)); });
