@@ -2,6 +2,18 @@
 
 Each release is a heading with its tag. The release workflow uses the words under it as the release's notes.
 
+## v1.2.0
+
+- Imports keep their own keys (`PROJ-12`); new tasks count on from the highest.
+- `new` takes `--team` and `--team-access`, so a project can live in a team.
+- `projects.js check <database>` reports what is wrong with a project.
+- Sprints and estimates: `sprint` and `estimate` on a task, and a sprint filter on the board with *This sprint*.
+- Assignees and reviewers take names as well as @handles.
+- `source {ref, url, created_at, author}` keeps where a task came from, shown as *Imported from* and *Created*; ⌘K finds
+  the old key.
+- An `archive` collection past the 2,000-task cap: `--archive done` on `new`, and `projects.js archive`.
+- `add` reads every task (it stopped at 200), and the command's answer lists any body it had to cut.
+
 ## v1.1.0
 
 - Epics: a task that others name as their parent. The board has an Epics view with each one's progress, a filter by epic,
