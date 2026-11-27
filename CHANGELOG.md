@@ -7,6 +7,10 @@ and this skill adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 
 ## [Unreleased]
 
+### Changed
+
+- Agents set `blocked_by` whenever a task waits on another, so the board shows where work is stuck.
+
 ## [1.2.0] - 2026-11-27
 
 ### Added

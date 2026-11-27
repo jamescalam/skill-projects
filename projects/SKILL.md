@@ -70,6 +70,10 @@ itself. A project holds at most 2,000 tasks, and anyone but the database's owner
 `body` saying what it's for. The board shows epics in their own view with their progress, and filters by one; they have no
 card in the columns. Use them once a project has more than about 20 tasks.
 
+**Blockers:** whenever a task can't start until another finishes, set its `blocked_by`, as you plan and whenever you
+find one later. Its card then shows Blocked by until the blocker is done, and the blocker lists what it Blocks. That is how a
+board shows where work is stuck, which a team needs to keep work flowing.
+
 **Moving a project in** (Linear, GitHub, a spreadsheet): keep its keys with `--key` set to theirs (ALA) and each task's
 `"key": "ALA-2135"`; new tasks then count on from the highest. If the project takes a new key, put the old one in
 `"source": {"ref": "ALA-2135", "url": "…"}`: the board shows it and finds it in ⌘K. Either way, put when and by whom
@@ -108,6 +112,7 @@ spaces an hour, and a project is one space plus one per board.
 - Make one task: read the settings record, `update_record` it to `next + 1` with the `revision` you read, then
   `create_record` in `tasks` with `key` = `<key>-<the number you took>`. A conflict means someone took that number:
   read again and take the next. (`projects.js add` does this for you.)
+- A task turns out to wait on another: add the other's key to its `blocked_by` in the same update.
 - Moving a task between columns sets `state`, and `rank` to text that sorts between its new neighbours.
 - Done means the `done_when` evidence exists: link it in `links` before setting `state` to `done`.
 - Keep the database page's `spacesheep:records` meta on every publish of it: a publish without it makes the
