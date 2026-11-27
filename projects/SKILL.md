@@ -30,12 +30,14 @@ if it isn't installed) and prints the links as JSON.
    | `state` | `backlog`, `todo` (the default), `in_progress`, `in_review`, `done` |
    | `priority` | `urgent`, `high`, `medium`, `low`, `none` |
    | `labels` | label names from `--labels`: `["Design"]` |
-   | `assignees`, `reviewers` | @handles of people or agents |
+   | `assignees`, `reviewers` | `@handle` for someone on Spacesheep, else a name: `["@ana", "Carlos", "Release agent"]` |
    | `due` | `YYYY-MM-DD` |
+   | `sprint`, `estimate` | a sprint's name; a number (points or hours) |
    | `blocked_by`, `parent` | other tasks in this list, by their exact title |
    | `done_when`, `links` | the evidence that closes it; URLs |
 
-   No tasks asked for: skip this, the board starts empty.
+   No tasks asked for: skip this, the board starts empty. With sprints, write `{"tasks": [...], "sprints": [{"name",
+   "start", "end"}]}` instead of a bare list.
 2. **One command:**
 
    ```
@@ -52,6 +54,8 @@ if it isn't installed) and prints the links as JSON.
      anyone signed in change tasks. Nothing in a task is hidden there: keep private words out of titles and bodies.
    - `--labels` takes names, each with an optional `#rrggbb`; without one, each takes the next of the skill's
      palette.
+   - `--team "<team>"` (and `--team-access view|edit`, view by default) puts the database and every board in one of
+     the person's teams.
 3. **Reply with the board's link first**, then one line on what's in it ("6 tasks, 4 labels, key CLA"). Name the
    database space as the project's home: it lists the boards and where things stand, and every board links to it.
 
@@ -66,8 +70,20 @@ itself. A project holds at most 2,000 tasks, and anyone but the database's owner
 `body` saying what it's for. The board shows epics in their own view with their progress, and filters by one; they have no
 card in the columns. Use them once a project has more than about 20 tasks.
 
+**Moving a project in** (Linear, GitHub, a spreadsheet): keep its keys with `--key` set to theirs (ALA) and each task's
+`"key": "ALA-2135"`; new tasks then count on from the highest. If the project takes a new key, put the old one in
+`"source": {"ref": "ALA-2135", "url": "…"}`: the board shows it and finds it in ⌘K. Either way, put when and by whom
+it was made in `source.created_at` and `source.author`. Add `--archive done` to file done and dropped tasks in the
+archive straight away: a collection holds 2,000 tasks. The command's answer lists any body it cut at 10,000
+characters. Then run `check` (below) and say what it found.
+
 **Add tasks later** the same way: `node <folder>/assets/projects.js add <database @owner/slug or link> --tasks
 more.json`. It takes their keys in one guarded claim, so two agents adding at once never share a key.
+
+**Archive** finished work: `projects.js archive <database> [--before YYYY-MM-DD]` moves done and dropped tasks off the
+boards into the `archive` collection. **Check** a project: `projects.js check <database>` counts tasks per state and
+lists anything that points at nothing (a parent, a blocker or a label), repeated keys, a counter behind the keys, and
+boards that can't write. It can't show you how a board looks: open it.
 
 ## No shell (a chat connector, Shepherd)
 

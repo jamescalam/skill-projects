@@ -8,17 +8,25 @@
 //   node projects.js new "<project name>" [--key PROJ] [--boards "Board, Design review"]
 //                         [--labels "Design:#4f46e5, Bug:#b91c1c"] [--tasks tasks.json]
 //                         [--visibility private|members|signed_in|public] [--people "a@b.c, @handle"]
-//                         [--show signed_in|public]
+//                         [--show signed_in|public] [--team "<team>" [--team-access view|edit]]
+//                         [--archive done]
 //       The database space, its settings and labels, the tasks in tasks.json, and each board, every
 //       board allowed to write, all shared alike. --show opens the boards alone to everyone, read only:
-//       the database stays as --visibility has it. Prints the links as JSON.
-//   node projects.js add <database: @owner/slug or link> --tasks tasks.json
+//       the database stays as --visibility has it. --team puts every space in that team. --archive done
+//       files done and dropped tasks in the archive, which boards don't load. Prints the links as JSON.
+//   node projects.js add <database: @owner/slug or link> --tasks tasks.json [--archive done]
 //       More tasks: takes their keys in one guarded claim, then makes them side by side.
+//   node projects.js archive <database> [--before YYYY-MM-DD]
+//       Moves done and dropped tasks (last changed before that day, if given) out of the boards, into the archive.
+//   node projects.js check <database>
+//       What's in it, and anything that points at nothing: counts per state, unknown parents, blockers and labels,
+//       repeated keys, a counter behind the keys, boards that can't write. Prints JSON; exits 1 when something's wrong.
 //
-// tasks.json is a list of tasks (or {"tasks": [...]}) in the task shape (references/task-shape.md), with
-// two conveniences: `labels` may name labels ("Design") as well as give record ids, and `blocked_by` /
-// `parent` may name another task in this list by its title (or its place, 1 = the first) as well as by key. Leave `key` and
-// `rank` out: they are given here.
+// tasks.json is a list of tasks (or {"tasks": [...], "sprints": [...]}) in the task shape (references/task-shape.md),
+// with conveniences: `labels` may name labels ("Design") as well as give record ids, and `blocked_by` / `parent` may
+// name another task in this list by its title (or its place, 1 = the first) as well as by key. Leave `rank` out. A task
+// may keep a key of its own (`"key": "ALA-2135"` when the project's key is ALA, or `"number": 2135`); the rest take the
+// next free numbers, and the counter goes past the highest.
 
 "use strict";
 const fs = require("fs");
@@ -33,6 +41,7 @@ const t0 = Date.now();
 const ms = () => Date.now() - t0;
 const log = (line) => process.stderr.write(`[${(ms() / 1000).toFixed(2)}s] ${line}\n`);
 const die = (why) => { process.stderr.write(`projects.js: ${why}\n`); process.exit(2); };
+const BODY_MAX = 10000;
 
 // --- Arguments ---
 const argv = process.argv.slice(2);
@@ -116,6 +125,7 @@ function keyFrom(name) { // initials, topped up from the last word: Crumb launch
 }
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fill = (file, vars) => fs.readFileSync(path.join(TEMPLATES, file), "utf8").replace(/\{\{([A-Z]+)\}\}/g, (m, k) => (k in vars ? vars[k] : m));
+let sprintsIn = [];
 function readTasks(file) {
   if (!file) return [];
   let j; try { j = JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { die(`can't read ${file}: ${e.message}`); }
@@ -125,33 +135,70 @@ function readTasks(file) {
     if (!t || typeof t !== "object" || !String(t.title || "").trim()) die(`task ${i + 1} in ${file} has no title`);
     if (t.state && !STATES.includes(t.state)) die(`task ${i + 1}: state "${t.state}" isn't one of ${STATES.join(", ")}`);
     if (t.priority && !PRIORITIES.includes(t.priority)) die(`task ${i + 1}: priority "${t.priority}" isn't one of ${PRIORITIES.join(", ")}`);
+    if (t.estimate != null && !(Number(t.estimate) >= 0)) die(`task ${i + 1}: estimate "${t.estimate}" isn't a number`);
+    if (t.source != null && typeof t.source !== "object") die(`task ${i + 1}: source is {ref, url, created_at, author}`);
   });
+  sprintsIn = Array.isArray(j && j.sprints) ? j.sprints.filter((x) => x && String(x.name || "").trim()).map((x) => ({ name: String(x.name).trim().slice(0, 80), ...(/^\d{4}-\d{2}-\d{2}$/.test(x.start) ? { start: x.start } : {}), ...(/^\d{4}-\d{2}-\d{2}$/.test(x.end) ? { end: x.end } : {}) })) : [];
   return tasks;
 }
 function parseLabels(v) {
   return list(v).map((s, i) => { const m = /^(.*?)(?::\s*(#[0-9a-fA-F]{6}))?$/.exec(s); return { name: m[1].trim(), color: (m[2] || PALETTE[i % PALETTE.length]).toLowerCase() }; }).filter((l) => l.name);
 }
-// The tasks as records: keys from `first`, ranks in order per column, labels and links resolved.
-function taskRecords(tasks, key, first, labelIds, lastRank = {}) {
+// The tasks as records: their own keys kept, the rest numbered from `first`, skipping keys in `taken`; ranks in order
+// per column, labels and links resolved. Answers the records, the next free number and the keys whose body was cut.
+function taskRecords(tasks, key, first, labelIds, lastRank = {}, taken = new Set()) {
+  const own = tasks.map((t, i) => {
+    const k = t.key != null ? String(t.key).trim().toUpperCase() : t.number != null ? `${key}-${t.number}` : null;
+    if (k == null) return null;
+    const m = /^([A-Z][A-Z0-9]{2,4})-([1-9]\d{0,8})$/.exec(k);
+    if (!m) die(`task ${i + 1}: key "${t.key ?? t.number}" isn't <KEY>-<number>`);
+    if (m[1] !== key) die(`task ${i + 1}: key ${k} isn't this project's (${key}). Use --key ${m[1]} to keep those keys, or put the old one in "source": {"ref": "${k}"}`);
+    return k;
+  });
+  const seen = new Set(taken);
+  own.forEach((k, i) => { if (k && seen.has(k)) die(`task ${i + 1}: key ${k} is taken${taken.has(k) ? " in this project" : " twice in this list"}`); if (k) seen.add(k); });
+  // New tasks count on from the highest key the list keeps, so an import's new work reads as newer.
+  let n = Math.max(first, ...own.filter(Boolean).map((k) => Number(k.slice(key.length + 1)) + 1));
+  const keys = own.map((k) => { if (k) return k; while (seen.has(`${key}-${n}`)) n++; seen.add(`${key}-${n}`); return `${key}-${n++}`; });
+  const next = Math.max(first, ...[...seen].filter((k) => k.startsWith(key + "-")).map((k) => Number(k.slice(key.length + 1)) + 1));
   // Another task in this list by its title (what a writer remembers), or by its place (1 = the first); else a key.
   const byTitle = new Map(tasks.map((t, i) => [String(t.title).trim().toLowerCase(), i]));
   const keyAt = (ref) => {
     const r = String(ref).trim(), i = byTitle.get(r.toLowerCase());
-    if (i !== undefined) return `${key}-${first + i}`;
-    if (/^\d+$/.test(r)) return tasks[Number(r) - 1] ? `${key}-${first + Number(r) - 1}` : null;
+    if (i !== undefined) return keys[i];
+    if (/^\d+$/.test(r)) return tasks[Number(r) - 1] ? keys[Number(r) - 1] : null;
     return /^[A-Za-z][A-Za-z0-9]{2,4}-\d+$/.test(r) ? r.toUpperCase() : null;
   };
-  return tasks.map((t, i) => {
-    const d = { ...t, key: `${key}-${first + i}`, title: String(t.title).trim().slice(0, 200), state: t.state || "todo" };
-    delete d.rank;
+  const who = (v) => (Array.isArray(v) ? v.map((h) => String(h).trim().slice(0, 80)).filter(Boolean).slice(0, 10) : undefined);
+  const cut = [];
+  const records = tasks.map((t, i) => {
+    const d = { ...t, key: keys[i], title: String(t.title).trim().slice(0, 200), state: t.state || "todo" };
+    delete d.rank; delete d.number;
     d.rank = lastRank[d.state] = between(lastRank[d.state] || "", null);
+    if (t.body != null && String(t.body).length > BODY_MAX) { d.body = String(t.body).slice(0, BODY_MAX); cut.push(keys[i]); }
     if (Array.isArray(t.labels)) d.labels = t.labels.map((l) => labelIds[String(l).toLowerCase()] || l).filter((l) => Object.values(labelIds).includes(l)).slice(0, 10);
     if (Array.isArray(t.blocked_by)) d.blocked_by = t.blocked_by.map(keyAt).filter(Boolean).slice(0, 20);
     if (t.parent != null) { const p = keyAt(t.parent); if (p) d.parent = p; else delete d.parent; }
-    if (Array.isArray(t.assignees)) d.assignees = t.assignees.map((h) => (String(h).startsWith("@") ? h : "@" + h)).slice(0, 10);
+    // People and agents: an @handle for someone on Spacesheep, else their name as written (an agent, someone without an account).
+    if (t.assignees != null) d.assignees = who(t.assignees);
+    if (t.reviewers != null) d.reviewers = who(t.reviewers);
+    if (t.estimate != null) d.estimate = Number(t.estimate);
+    if (t.sprint != null) d.sprint = String(t.sprint).trim().slice(0, 80);
+    if (t.source) d.source = Object.fromEntries(["ref", "url", "created_at", "author"].filter((f) => t.source[f] != null).map((f) => [f, String(t.source[f]).slice(0, 300)]));
     return d;
   });
+  return { records, next, cut };
 }
+// The sprints the settings record lists: those the file gives, then any a task names.
+function sprintList(had, records) {
+  const out = [...(had || [])];
+  for (const x of [...sprintsIn, ...records.filter((d) => d.sprint).map((d) => ({ name: d.sprint }))]) {
+    const at = out.findIndex((o) => o.name === x.name);
+    if (at < 0) out.push(x); else if (x.start || x.end) out[at] = { ...out[at], ...x };
+  }
+  return out.slice(0, 50);
+}
+const archived = (d) => flags.archive === "done" && (d.state === "done" || d.state === "dropped");
 const all = (xs) => Promise.all(xs);
 // Record writes go 24 at a time. Spacesheep takes 120 record writes a minute from one person; one it refused for that
 // was never written, so it is sent again after the wait it names. Any other failure is not retried: it may have landed.
@@ -171,6 +218,22 @@ async function write(fn) {
   } finally { const next = queue.shift(); if (next) next(); else slots++; }
 }
 
+// Every record of a collection, 200 a page.
+async function listAll(ss, space, collection) {
+  const out = [];
+  for (let after = ""; ;) {
+    const r = await ss.call("list_records", { space, collection, limit: 200, ...(after ? { after } : {}) });
+    out.push(...(r.records || []));
+    after = r.page && r.page.next;
+    if (!after || out.length >= 4000) return out;
+  }
+}
+const dbArg = (v) => {
+  const where = String(v || "").replace(/^https?:\/\/[^/]+\//, "").replace(/\/+$/, "");
+  if (!/^@?[a-z0-9-]+\/[a-z0-9-]+$/.test(where)) die(`${cmd} needs the database as @owner/slug or its link`);
+  return where.startsWith("@") ? where : "@" + where;
+};
+
 // The address create_space gives a title when it's free (shared/slug.ts), so the boards can name the database
 // before it exists.
 function slugify(title) {
@@ -186,7 +249,12 @@ async function newProject() {
   const boards = list(flags.boards || "Board");
   const labels = parseLabels(flags.labels);
   const tasks = readTasks(flags.tasks);
-  const share = { ...(flags.visibility ? { visibility: flags.visibility } : {}), ...(flags.people ? { people: list(flags.people) } : {}) };
+  const share = { ...(flags.visibility ? { visibility: flags.visibility } : {}), ...(flags.people ? { people: list(flags.people) } : {}),
+    ...(flags.team ? { team: flags.team, team_access: flags["team-access"] || "view" } : {}) };
+  if (flags["team-access"] && !["view", "edit"].includes(flags["team-access"])) die("--team-access: view or edit");
+  if (flags["team-access"] && !flags.team) die("--team-access needs --team");
+  if (flags.archive && flags.archive !== "done") die("--archive: done (done and dropped tasks go to the archive)");
+  const planAll = taskRecords(tasks, key, 1, {});
   if (flags.show && !["signed_in", "public"].includes(flags.show)) die("--show: signed_in or public");
   const shareBoard = flags.show ? { ...share, visibility: flags.show } : share;
   const ss = bridge();
@@ -216,47 +284,105 @@ async function newProject() {
   });
   const labelsP = dbP.then((db) => all(labels.map((l) => write(() => ss.call("create_record", { space_id: db.id, collection: "labels", data: l })).then((r) => r.record))));
   // A task with no labels goes as soon as the database exists; one with labels once they do.
-  const make = (db, d) => write(() => ss.call("create_record", { space_id: db.id, collection: "tasks", data: d }));
+  const make = (db, d) => write(() => ss.call("create_record", { space_id: db.id, collection: archived(d) ? "archive" : "tasks", data: d }));
   const labelled = tasks.map((t) => Array.isArray(t.labels) && t.labels.length > 0);
-  const plainP = dbP.then((db) => all(taskRecords(tasks, key, 1, {}).filter((d, i) => !labelled[i]).map((d) => make(db, d))));
+  const plainP = dbP.then((db) => all(planAll.records.filter((d, i) => !labelled[i]).map((d) => make(db, d))));
   const labelledP = Promise.all([dbP, labelsP]).then(([db, labelRecs]) => {
     const labelIds = {}; labelRecs.forEach((r) => { labelIds[String(r.data.name).toLowerCase()] = r.id; });
-    return all(taskRecords(tasks, key, 1, labelIds).filter((d, i) => labelled[i]).map((d) => make(db, d)));
+    return all(taskRecords(tasks, key, 1, labelIds).records.filter((d, i) => labelled[i]).map((d) => make(db, d)));
   });
   const tasksP = Promise.all([plainP, labelledP]).then(([a, b]) => log(`${labels.length} label(s), ${a.length + b.length} task(s)`));
+  const sprints = sprintList([], planAll.records);
   const restP = Promise.all([dbP, boardsP]).then(([db, spaces]) => all([
-    write(() => ss.call("create_record", { space_id: db.id, collection: "settings", data: { key, name, next: tasks.length + 1, home: db.url, boards: spaces.map((sp, i) => ({ name: boards[i], url: sp.url })) } })),
+    write(() => ss.call("create_record", { space_id: db.id, collection: "settings", data: { key, name, next: planAll.next, home: db.url, boards: spaces.map((sp, i) => ({ name: boards[i], url: sp.url })), ...(sprints.length ? { sprints } : {}) } })),
     all(["tasks", "labels", "settings"].map((c) => ss.call("update_collection", { space_id: db.id, collection: c, writers_ids: spaces.map((sp) => sp.id), ...(flags.show ? { readers_ids: spaces.map((sp) => sp.id) } : {}) }))),
   ]).then(() => log("settings, boards allowed to write")));
   const [db, spaces] = await Promise.all([dbP, boardsP, tasksP, restP]);
   ss.close();
-  process.stdout.write(JSON.stringify({ project: name, key, database: { name: db.name, url: db.url }, boards: spaces.map((sp, i) => ({ name: boards[i], url: sp.url })), labels: labels.length, tasks: tasks.length, ms: ms() }, null, 2) + "\n");
+  process.stdout.write(JSON.stringify({ project: name, key, database: { name: db.name, url: db.url }, boards: spaces.map((sp, i) => ({ name: boards[i], url: sp.url })), labels: labels.length, tasks: tasks.length,
+    archived: planAll.records.filter(archived).length, ...(planAll.cut.length ? { bodies_cut_at_10000: planAll.cut } : {}), ms: ms() }, null, 2) + "\n");
 }
 
 async function addTasks() {
-  const where = String(rest[0] || "").replace(/^https?:\/\/[^/]+\//, "").replace(/\/+$/, "");
-  if (!/^@?[a-z0-9-]+\/[a-z0-9-]+$/.test(where)) die("add needs the database as @owner/slug or its link");
-  const space = where.startsWith("@") ? where : "@" + where;
+  const space = dbArg(rest[0]);
   const tasks = readTasks(flags.tasks);
   if (!tasks.length) die("add needs --tasks with at least one task");
+  if (flags.archive && flags.archive !== "done") die("--archive: done");
   const ss = bridge();
-  const [settingsList, labelList, taskList] = await all(["settings", "labels", "tasks"].map((c) => ss.call("list_records", { space, collection: c, limit: 200 })));
-  // Take the keys in one guarded claim: a conflict means someone else took some; read again and claim after them.
-  let s = (settingsList.records || [])[0];
+  const [settingsList, labelList, taskList, archiveList] = await all(["settings", "labels", "tasks", "archive"].map((c) => listAll(ss, space, c).catch((e) => (c === "archive" ? [] : Promise.reject(e)))));
+  let s = settingsList[0];
   if (!s) die(`${space} has no settings record: is it a Projects database?`);
-  let first;
+  const key = String(s.data.key);
+  const taken = new Set([...taskList, ...archiveList].map((r) => String(r.data.key || "")).filter(Boolean));
+  const labelIds = {}; labelList.forEach((r) => { labelIds[String(r.data.name).toLowerCase()] = r.id; });
+  const lastRank = {}; taskList.forEach((r) => { const st = r.data.state || "backlog", rk = String(r.data.rank || ""); if (rk > (lastRank[st] || "")) lastRank[st] = rk; });
+  // Take the keys in one guarded claim: a conflict means someone else took some; read again and claim after them.
+  let plan;
   for (let tries = 0; ; tries++) {
-    first = Math.max(1, Math.floor(Number(s.data.next)) || 1);
-    try { await ss.call("update_record", { space, collection: "settings", record: s.id, revision: s.revision, data: { ...s.data, next: first + tasks.length } }); break; }
+    plan = taskRecords(tasks, key, Math.max(1, Math.floor(Number(s.data.next)) || 1), labelIds, { ...lastRank }, taken);
+    const sprints = sprintList(s.data.sprints, plan.records);
+    try { await ss.call("update_record", { space, collection: "settings", record: s.id, revision: s.revision, data: { ...s.data, next: plan.next, ...(sprints.length ? { sprints } : {}) } }); break; }
     catch (e) { if (tries > 5 || !/conflict|409|revision/i.test(e.message)) throw e; s = await ss.call("get_record", { space, collection: "settings", record: s.id }).then((r) => r.record); }
   }
-  const labelIds = {}; (labelList.records || []).forEach((r) => { labelIds[String(r.data.name).toLowerCase()] = r.id; });
-  const lastRank = {}; (taskList.records || []).forEach((r) => { const st = r.data.state || "backlog", rk = String(r.data.rank || ""); if (rk > (lastRank[st] || "")) lastRank[st] = rk; });
-  const made = await all(taskRecords(tasks, String(s.data.key), first, labelIds, lastRank).map((d) => write(() => ss.call("create_record", { space, collection: "tasks", data: d }))));
+  const made = await all(plan.records.map((d) => write(() => ss.call("create_record", { space, collection: archived(d) ? "archive" : "tasks", data: d }))));
   ss.close();
-  process.stdout.write(JSON.stringify({ added: made.map((m) => m.record && m.record.data.key), ms: ms() }, null, 2) + "\n");
+  process.stdout.write(JSON.stringify({ added: made.map((m) => m.record && m.record.data.key), ...(plan.cut.length ? { bodies_cut_at_10000: plan.cut } : {}), ms: ms() }, null, 2) + "\n");
 }
 
-const run = { new: newProject, add: addTasks }[cmd];
-if (!run) die("commands: new, add (see the top of this file)");
+async function archiveTasks() {
+  const space = dbArg(rest[0]);
+  if (flags.before && !/^\d{4}-\d{2}-\d{2}$/.test(flags.before)) die("--before: YYYY-MM-DD");
+  const ss = bridge();
+  const due = (await listAll(ss, space, "tasks")).filter((r) => ["done", "dropped"].includes(r.data.state) && (!flags.before || String(r.updated_at || "") < flags.before));
+  // Copied first, then taken off the boards: a run cut short leaves a task in both, never in neither.
+  const moved = await all(due.map((r) => write(async () => {
+    const src = r.data.source || {};
+    await ss.call("create_record", { space, collection: "archive", data: { ...r.data, source: { ...src, created_at: src.created_at || r.created_at, ...(src.author || !r.author ? {} : { author: r.author.handle ? "@" + String(r.author.handle).replace(/^@/, "") : r.author.name || "" }) } } });
+    await ss.call("delete_record", { space, collection: "tasks", record: r.id });
+    return r.data.key;
+  })));
+  ss.close();
+  process.stdout.write(JSON.stringify({ archived: moved.length, keys: moved, ms: ms() }, null, 2) + "\n");
+}
+
+async function checkProject() {
+  const space = dbArg(rest[0]);
+  const ss = bridge();
+  const [settingsList, labelList, taskList, archiveList, cols] = await all([
+    ...["settings", "labels", "tasks", "archive"].map((c) => listAll(ss, space, c).catch((e) => (c === "archive" ? [] : Promise.reject(e)))),
+    ss.call("list_collections", { space }).catch(() => null)]);
+  ss.close();
+  const s = settingsList[0] && settingsList[0].data;
+  const problems = [];
+  if (!s) problems.push("no settings record: not a Projects database, or its settings were deleted");
+  if (settingsList.length > 1) problems.push(`${settingsList.length} settings records: boards read only the first`);
+  const keys = new Map(), labelIds = new Set(labelList.map((r) => r.id));
+  for (const r of [...taskList, ...archiveList]) { const k = String(r.data.key || ""); if (k) keys.set(k, (keys.get(k) || 0) + 1); }
+  const live = new Set(taskList.map((r) => String(r.data.key || "")));
+  const say = (what, list) => { if (list.length) problems.push(`${what}: ${list.slice(0, 12).join(", ")}${list.length > 12 ? ` and ${list.length - 12} more` : ""}`); };
+  say("keys used twice", [...keys].filter(([, n]) => n > 1).map(([k]) => k));
+  say("tasks with no key", taskList.filter((r) => !r.data.key).map((r) => r.id));
+  say("parent is no task", taskList.filter((r) => r.data.parent && !keys.has(r.data.parent)).map((r) => `${r.data.key} → ${r.data.parent}`));
+  say("parent is archived (the board can't show the epic)", taskList.filter((r) => r.data.parent && keys.has(r.data.parent) && !live.has(r.data.parent)).map((r) => `${r.data.key} → ${r.data.parent}`));
+  say("blocked by no task", taskList.flatMap((r) => (r.data.blocked_by || []).filter((k) => !keys.has(k)).map((k) => `${r.data.key} → ${k}`)));
+  say("label no longer exists", taskList.flatMap((r) => (r.data.labels || []).filter((l) => !labelIds.has(l)).map((l) => `${r.data.key} → ${l}`)));
+  if (s) {
+    const high = Math.max(0, ...[...keys.keys()].filter((k) => k.startsWith(s.key + "-")).map((k) => Number(k.slice(String(s.key).length + 1))));
+    if (!(Number(s.next) > high)) problems.push(`settings.next is ${s.next} but ${s.key}-${high} exists: the next new task would repeat a key`);
+  }
+  const boards = (s && s.boards || []).length, byId = Object.fromEntries(((cols && cols.collections) || []).map((c) => [c.id || c.name, c]));
+  const writers = byId.tasks && Array.isArray(byId.tasks.writers) ? byId.tasks.writers.length : null;
+  for (const c of ["tasks", "labels", "settings"]) { const w = byId[c] && byId[c].writers; if (Array.isArray(w) && w.length < boards) problems.push(`${boards} boards but ${w.length} may write ${c}: add the others with update_collection`); }
+  const places = new Map(); taskList.forEach((r) => { const p = `${r.data.state || "backlog"} ${r.data.rank || ""}`; places.set(p, [...(places.get(p) || []), r.data.key]); });
+  say("tasks sharing one place in a column (drag one to fix)", [...places.values()].filter((k) => k.length > 1).map((k) => k.join(" = ")));
+  const states = {}; taskList.forEach((r) => { const st = r.data.state || "backlog"; states[st] = (states[st] || 0) + 1; });
+  if (taskList.length > 1800) problems.push(`${taskList.length} tasks: a collection holds 2,000. Run archive for finished ones`);
+  process.stdout.write(JSON.stringify({ project: s && s.name, key: s && s.key, tasks: taskList.length, states, archived: archiveList.length, labels: labelList.length,
+    boards, writers, sprints: (s && s.sprints || []).length, ok: !problems.length, problems,
+    not_checked: "how the boards look: a screenshot can't sign a board in, so open one to see it" }, null, 2) + "\n");
+  if (problems.length) process.exitCode = 1;
+}
+
+const run = { new: newProject, add: addTasks, archive: archiveTasks, check: checkProject }[cmd];
+if (!run) die("commands: new, add, archive, check (see the top of this file)");
 run().catch((e) => { process.stderr.write(`projects.js ${cmd}: ${e.message}\n`); process.exit(1); });
